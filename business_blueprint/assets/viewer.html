@@ -34,39 +34,97 @@
       }
     </style>
   </head>
-  <body>
+    <body>
     <script>
-      const blueprint = __BLUEPRINT_JSON__;
-      let patchLog = [];
+      const blueprint = JSON.parse(__BLUEPRINT_JSON__);
+      const patchLog = JSON.parse(__PATCH_LOG_JSON__);
+      let savedPatchSnapshot = "";
+
+      function downloadText(filename, content, type) {
+        const blob = new Blob([content], { type });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+      }
+
+      function realPatchEntries() {
+        return patchLog.filter((entry) => entry.op !== "seed_patch_log");
+      }
+
+      function refreshSavedSnapshot() {
+        savedPatchSnapshot = JSON.stringify(realPatchEntries());
+      }
+
+      function firstCapability() {
+        return (blueprint.library?.capabilities || [])[0] || null;
+      }
+
+      function firstSystem() {
+        return (blueprint.library?.systems || [])[0] || null;
+      }
+
+      function ensureLocks() {
+        blueprint.editor = blueprint.editor || {};
+        blueprint.editor.fieldLocks = blueprint.editor.fieldLocks || {};
+      }
 
       function updateSummary() {
         document.getElementById("revision-id").textContent = blueprint.meta.revisionId || "unknown";
-        document.getElementById("dirty-state").textContent = patchLog.length ? "Unsaved edits" : "Saved";
+        document.getElementById("dirty-state").textContent =
+          JSON.stringify(realPatchEntries()) === savedPatchSnapshot ? "Saved" : "Unsaved edits";
         document.getElementById("json-view").value = JSON.stringify(blueprint, null, 2);
       }
 
       function renameTitle() {
         const nextValue = document.getElementById("title-input").value.trim();
         blueprint.meta.title = nextValue || blueprint.meta.title || "Generated Blueprint";
-        blueprint.editor = blueprint.editor || {};
-        blueprint.editor.fieldLocks = blueprint.editor.fieldLocks || {};
+        ensureLocks();
         blueprint.editor.fieldLocks["meta.title"] = "human";
         patchLog.push({ op: "update_meta", fields: { title: blueprint.meta.title } });
         updateSummary();
       }
 
+      function updateCapabilityDescription() {
+        const capability = firstCapability();
+        if (!capability) return;
+        capability.description = document.getElementById("capability-description").value.trim();
+        ensureLocks();
+        blueprint.editor.fieldLocks[`library.capabilities.${capability.id}.description`] = "human";
+        patchLog.push({ op: "update_node", id: capability.id, fields: { description: capability.description } });
+        updateSummary();
+      }
+
+      function updateSystemDescription() {
+        const system = firstSystem();
+        if (!system) return;
+        system.description = document.getElementById("system-description").value.trim();
+        ensureLocks();
+        blueprint.editor.fieldLocks[`library.systems.${system.id}.description`] = "human";
+        patchLog.push({ op: "update_node", id: system.id, fields: { description: system.description } });
+        updateSummary();
+      }
+
       function exportRevision() {
-        const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = "solution.blueprint.json";
-        link.click();
+        downloadText("solution.blueprint.json", JSON.stringify(blueprint, null, 2), "application/json");
+        downloadText(
+          "solution.patch.jsonl",
+          patchLog.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+          "application/x-ndjson",
+        );
+        refreshSavedSnapshot();
+        updateSummary();
       }
 
       window.addEventListener("DOMContentLoaded", () => {
         document.getElementById("title-input").value = blueprint.meta.title || "";
+        document.getElementById("capability-description").value = firstCapability()?.description || "";
+        document.getElementById("system-description").value = firstSystem()?.description || "";
         document.getElementById("rename-button").addEventListener("click", renameTitle);
+        document.getElementById("capability-button").addEventListener("click", updateCapabilityDescription);
+        document.getElementById("system-button").addEventListener("click", updateSystemDescription);
         document.getElementById("save-button").addEventListener("click", exportRevision);
+        refreshSavedSnapshot();
         updateSummary();
       });
     </script>
@@ -88,6 +146,14 @@
             <button id="rename-button" type="button">Apply Title</button>
             <button id="save-button" type="button">Export Revision</button>
           </div>
+          <div style="height: 16px;"></div>
+          <label for="capability-description">First Capability Description</label>
+          <textarea id="capability-description"></textarea>
+          <button id="capability-button" type="button" style="margin-top:12px;">Apply Capability Description</button>
+          <div style="height: 16px;"></div>
+          <label for="system-description">First System Description</label>
+          <textarea id="system-description"></textarea>
+          <button id="system-button" type="button" style="margin-top:12px;">Apply System Description</button>
         </div>
       </aside>
       <section>

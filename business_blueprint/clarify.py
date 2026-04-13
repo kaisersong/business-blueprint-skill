@@ -35,7 +35,7 @@ def build_clarify_requests(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    if not library.get("flowSteps"):
+    if library.get("capabilities") and not library.get("flowSteps"):
         requests.append(
             {
                 "code": "MISSING_MAIN_FLOW",
