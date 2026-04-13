@@ -204,17 +204,19 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
     arrows_list: list[dict] = []
 
     # ── Vertical layout model ──
-    # Each layer from top to bottom:
-    #   border_y   = top of layer (same as header top)
-    #   header_y   = border_y  (header sits at border top, has its own bg)
-    #   content_y  = header_y + LAYER_HEADER_H + LAYER_PAD
-    #   border_h   = LAYER_HEADER_H + LAYER_PAD + content_h + LAYER_PAD
-    #   next layer border_y = this border_y + border_h + LAYER_GAP
+    # Pass 1: place all nodes with fixed content_y per layer
+    # Pass 2: compute border_h from actual content extents
     layer_y = 72  # below title block (y=10, h=52) + 10px gap
-    layer_configs: list[dict] = []
+
+    # Phase: layer index for each node
+    node_layer: dict[str, int] = {}
+
+    # Layer metadata (filled in pass 2)
+    layer_metas: list[dict] = []
 
     # ── Row 0: Systems ──
     if systems:
+        li = len(layer_metas)
         content_y = layer_y + LAYER_HEADER_H + LAYER_PAD
         for col_idx, col in enumerate(ordered_columns):
             x = start_x + col_idx * (NODE_W + COL_GAP)
@@ -226,17 +228,33 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
                         "kind": "system",
                         "label": sys_node.get("name", sys_node["id"]),
                     }
-        border_h = LAYER_HEADER_H + LAYER_PAD + NODE_H + LAYER_PAD
-        layer_configs.append({
+                    node_layer[sys_node["id"]] = li
+        layer_metas.append({
             "label": "Application Systems",
             "header_y": layer_y,
-            "border_y": layer_y,
-            "border_h": border_h,
+            "content_y": content_y,
         })
-        layer_y = layer_y + border_h + LAYER_GAP
+        layer_y = layer_y + LAYER_HEADER_H + LAYER_PAD + NODE_H + LAYER_PAD + LAYER_GAP
+
+    # ── Actors (always in first layer) ──
+    if actors:
+        first_meta = layer_metas[0] if layer_metas else None
+        if first_meta:
+            content_y = first_meta["content_y"]
+            x_actor = start_x + n_cols * (NODE_W + COL_GAP) + COL_GAP
+            y_actor = content_y
+            for a in actors:
+                nodes[a["id"]] = {
+                    "x": x_actor, "y": y_actor,
+                    "kind": "actor",
+                    "label": a.get("name", a["id"]),
+                }
+                node_layer[a["id"]] = 0
+                y_actor += NODE_H + 12
 
     # ── Row 1: Capabilities ──
     if capabilities:
+        li = len(layer_metas)
         content_y = layer_y + LAYER_HEADER_H + LAYER_PAD
         for col_idx, col in enumerate(ordered_columns):
             x = start_x + col_idx * (NODE_W + COL_GAP)
@@ -248,19 +266,18 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
                         "kind": "capability",
                         "label": cap_node.get("name", cid),
                     }
+                    node_layer[cid] = li
                     sid = col["system"]
                     if sid and sid in nodes:
                         arrows_list.append({
                             "from": sid, "to": cid, "label": "supports", "dashed": False,
                         })
-        border_h = LAYER_HEADER_H + LAYER_PAD + NODE_H + LAYER_PAD
-        layer_configs.append({
+        layer_metas.append({
             "label": "Business Capabilities",
             "header_y": layer_y,
-            "border_y": layer_y,
-            "border_h": border_h,
+            "content_y": content_y,
         })
-        layer_y = layer_y + border_h + LAYER_GAP
+        layer_y = layer_y + LAYER_HEADER_H + LAYER_PAD + NODE_H + LAYER_PAD + LAYER_GAP
 
     # ── Row 2: Flow Steps ──
     if flow_steps:
@@ -273,6 +290,7 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
                 if cid:
                     cap_col_map[cid] = col_idx
 
+        li = len(layer_metas)
         content_y = layer_y + LAYER_HEADER_H + LAYER_PAD
         for i, fs in enumerate(flow_nodes):
             best_col = i % max(n_cols, 1)
@@ -289,42 +307,54 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
                 "kind": "flowStep",
                 "label": fs.get("name", fs["id"]),
             }
+            node_layer[fs["id"]] = li
             for cid in fs.get("capabilityIds", []):
                 if cid in nodes:
                     arrows_list.append({
                         "from": cid, "to": fs["id"], "label": "", "dashed": True,
                     })
 
-        max_flow_rows = max(col_flow_count.values()) if col_flow_count else 1
-        flow_content_h = max_flow_rows * NODE_H + max(0, max_flow_rows - 1) * 10
-        border_h = LAYER_HEADER_H + LAYER_PAD + flow_content_h + LAYER_PAD
-        layer_configs.append({
+        layer_metas.append({
             "label": "Process Flows",
             "header_y": layer_y,
-            "border_y": layer_y,
-            "border_h": border_h,
+            "content_y": content_y,
         })
 
-    # ── Actors ──
-    if actors:
-        y_actor = CANVAS_PAD_TOP
-        x_actor = start_x + n_cols * (NODE_W + COL_GAP) + COL_GAP
-        for a in actors:
-            nodes[a["id"]] = {
-                "x": x_actor, "y": y_actor,
-                "kind": "actor",
-                "label": a.get("name", a["id"]),
-            }
-            y_actor += NODE_H + 12
+    # ── Pass 2: compute border_h from actual node extents, reposition nodes ──
+    for i, meta in enumerate(layer_metas):
+        # Step 2a: compute border_h from current node extents
+        content_y = meta["content_y"]
+        max_bottom = content_y
+        for nid, n in nodes.items():
+            if node_layer.get(nid) == i:
+                bottom = n["y"] + NODE_H
+                if bottom > max_bottom:
+                    max_bottom = bottom
+        content_h = max_bottom - content_y
+        meta["border_h"] = LAYER_HEADER_H + LAYER_PAD + content_h + LAYER_PAD
 
-    # ── Build layer boxes from configs ──
+    # Step 2b: recompute layer positions and reposition all nodes
+    current_y = 72
+    for i, meta in enumerate(layer_metas):
+        meta["border_y"] = current_y
+        meta["header_y"] = current_y
+        new_content_y = current_y + LAYER_HEADER_H + LAYER_PAD
+        # Shift nodes in this layer
+        y_delta = new_content_y - meta["content_y"]
+        for nid, n in nodes.items():
+            if node_layer.get(nid) == i:
+                n["y"] += y_delta
+        meta["content_y"] = new_content_y
+        current_y += meta["border_h"] + LAYER_GAP
+
+    # ── Build layer boxes from layer_metas ──
     layers = []
-    for lc in layer_configs:
+    for lm in layer_metas:
         layers.append({
-            "label": lc["label"],
-            "header_y": lc["header_y"],
-            "y": lc["border_y"],
-            "h": lc["border_h"],
+            "label": lm["label"],
+            "header_y": lm["header_y"],
+            "y": lm["border_y"],
+            "h": lm["border_h"],
         })
 
     # Calculate height (add room for legend at bottom)
