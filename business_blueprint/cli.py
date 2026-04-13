@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .export_drawio import export_drawio
 from .export_excalidraw import export_excalidraw
+from .export_html import export_html_viewer
 from .export_mermaid import export_mermaid
 from .export_svg import export_svg, export_product_tree_svg, export_matrix_svg, export_capability_map_svg, export_swimlane_flow_svg
 from .generate import write_plan_output
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--edit", help="Refresh the static viewer for an existing blueprint.")
     parser.add_argument("--export", help="Export SVG, draw.io, and Excalidraw artifacts.")
+    parser.add_argument("--html", help="Generate self-contained HTML viewer with inline SVG.")
     parser.add_argument("--validate", help="Validate a blueprint and print JSON results.")
     parser.add_argument("--from", dest="from_path", help="Source text or file path.")
     parser.add_argument("--industry", default="common", help="Template pack name.")
@@ -51,6 +53,9 @@ def main() -> int:
             handoff_path=viewer_path.with_name("solution.handoff.json"),
             patch_path=viewer_path.with_name("solution.patch.jsonl"),
         )
+        # Also generate self-contained HTML viewer with inline SVG
+        html_path = viewer_path.with_name("solution.viewer.html")
+        export_html_viewer(load_json(blueprint_path), html_path)
         return 0
 
     if args.edit:
@@ -77,6 +82,14 @@ def main() -> int:
         export_drawio(blueprint, export_dir / "solution.drawio")
         export_excalidraw(blueprint, export_dir / "solution.excalidraw")
         export_mermaid(blueprint, export_dir / "solution.mermaid.md")
+        return 0
+
+    if args.html:
+        blueprint_path = Path(args.from_path or "solution.blueprint.json")
+        blueprint = load_json(blueprint_path)
+        html_path = Path(args.html)
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        export_html_viewer(blueprint, html_path)
         return 0
 
     if args.validate:

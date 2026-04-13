@@ -263,13 +263,16 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
     if capabilities:
         li = len(layer_metas)
         content_y = layer_y + LAYER_HEADER_H + LAYER_PAD
+        col_cap_count: dict[int, int] = {}
         for col_idx, col in enumerate(ordered_columns):
             x = start_x + col_idx * (NODE_W + COL_GAP)
             for cid in col["caps"]:
                 cap_node = next((c for c in capabilities if c["id"] == cid), None)
                 if cap_node:
+                    row_in_col = col_cap_count.get(col_idx, 0)
+                    col_cap_count[col_idx] = row_in_col + 1
                     nodes[cid] = {
-                        "x": x, "y": content_y,
+                        "x": x, "y": content_y + row_in_col * (NODE_H + 10),
                         "kind": "capability",
                         "label": cap_node.get("name", cid),
                     }
@@ -284,7 +287,8 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
             "header_y": layer_y,
             "content_y": content_y,
         })
-        layer_y = layer_y + LAYER_HEADER_H + LAYER_PAD + NODE_H + LAYER_PAD + LAYER_GAP
+        max_cap_rows = max(col_cap_count.values(), default=1)
+        layer_y = layer_y + LAYER_HEADER_H + LAYER_PAD + max_cap_rows * (NODE_H + 10) + LAYER_GAP
 
     # ── Row 2: Flow Steps ──
     if flow_steps:
@@ -952,9 +956,21 @@ def export_capability_map_svg(blueprint: dict[str, Any], target: Path) -> None:
     CARD_W = 200
     CARD_H = 80
     CARD_GAP = 16
-    COLS = 3
-    COL_W = CARD_W + CARD_GAP
 
+    # Dynamic grid calculation: adjust columns based on capability count
+    n = len(capabilities)
+    if n <= 4:
+        COLS = min(n, 2)
+    elif n <= 9:
+        COLS = 3
+    elif n <= 16:
+        COLS = 4
+    elif n <= 25:
+        COLS = 5
+    else:
+        COLS = 6
+
+    COL_W = CARD_W + CARD_GAP
     canvas_w = PAD_X * 2 + COLS * COL_W - CARD_GAP
 
     parts: list[str] = []

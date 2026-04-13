@@ -6,71 +6,87 @@ from xml.sax.saxutils import escape
 
 
 def export_mermaid(blueprint: dict[str, Any], target: Path) -> None:
+    """Export blueprint as Mermaid diagram with smart grid layout.
+
+    Key layout strategy:
+    - Use flowchart TB (top-bottom) for vertical data flow
+    - Group capabilities into domain subgraphs, max 4 per row
+    - Systems at top, capabilities in middle, actors at bottom
+    """
     library = blueprint.get("library", {})
     capabilities = library.get("capabilities", [])
     systems = library.get("systems", [])
     actors = library.get("actors", [])
     flow_steps = library.get("flowSteps", [])
-    views = blueprint.get("views", [])
 
-    sections: list[str] = []
+    MAX_COLS = 4
+    lines = ["flowchart TB"]
 
-    # ── Capability Map View ──
-    cap_view = next((v for v in views if v.get("type") == "business-capability-map"), None)
-    if cap_view or capabilities:
-        lines = ["---", "title: 业务能力蓝图", "---", "graph TD"]
-        for cap in capabilities:
-            label = escape(cap.get("name", cap["id"]))
-            lines.append(f'    {cap["id"]}["{label}"]')
-        # Sub-system grouping
-        sys_ids = {s["id"]: s.get("name", s["id"]) for s in systems}
-        for sys in systems:
-            lines.append(f'    {sys["id"]}["{escape(sys.get("name", sys["id"]))}"]')
-            for cap_id in sys.get("capabilityIds", []):
-                lines.append(f'    {sys["id"]} --> {cap_id}')
-        sections.append("\n".join(lines))
-
-    # ── Swimlane Flow View ──
-    swim_view = next((v for v in views if v.get("type") == "swimlane-flow"), None)
-    if swim_view or (actors and flow_steps):
-        lines = ["---", "title: 泳道流程图", "---"]
-        actor_ids = {a["id"] for a in actors}
-        for actor in actors:
-            lines.append(f'    subgraph {actor["id"]}["{escape(actor.get("name", actor["id"]))}"]')
-            actor_flows = [f for f in flow_steps if f.get("actorId") == actor["id"]]
-            for i, flow in enumerate(actor_flows):
-                label = escape(flow.get("name", flow["id"]))
-                lines.append(f'        {flow["id"]}["{label}"]')
-            if not actor_flows:
-                lines.append("        empty[无流程]")
-            lines.append("    end")
-        # Flow ordering
-        for i in range(len(flow_steps) - 1):
-            lines.append(f'    {flow_steps[i]["id"]} --> {flow_steps[i + 1]["id"]}')
-        sections.append("\n".join(lines))
-
-    # ── Application Architecture View ──
-    arch_view = next((v for v in views if v.get("type") == "application-architecture"), None)
-    if arch_view or systems:
-        lines = ["---", "title: 应用架构图", "---", "graph TD"]
+    # ── Systems layer (top) ──
+    if systems:
+        lines.append('    subgraph Systems["Application Systems"]')
+        lines.append("        direction LR")
         for sys in systems:
             label = escape(sys.get("name", sys["id"]))
-            category = sys.get("category", "")
-            shape = f'{{"{label}"}}' if category == "database" else f'["{label}"]'
-            lines.append(f'    {sys["id"]}{shape}')
-        for cap in capabilities:
-            lines.append(f'    {cap["id"]}["{escape(cap.get("name", cap["id"]))}"]')
-        for sys in systems:
-            for cap_id in sys.get("capabilityIds", []):
-                lines.append(f'    {sys["id"]} --> {cap_id}')
-        # Explicit relations
-        for rel in blueprint.get("relations", []):
-            src = rel.get("sourceId", rel.get("source", ""))
-            tgt = rel.get("targetId", rel.get("target", ""))
-            rel_type = rel.get("type", "supports")
-            label = escape(rel.get("label", rel_type))
-            lines.append(f'    {src} -- "{label}" --> {tgt}')
-        sections.append("\n".join(lines))
+            lines.append(f'        {sys["id"]}["{label}"]')
+        lines.append("    end")
 
-    content = "\n\n".join(sections) + "\n"
+    # ── Capabilities grouped by domain/category ──
+    if capabilities:
+        domains: dict[str, list[dict]] = {}
+        for cap in capabilities:
+            domain = cap.get("category", cap.get("domain", ""))
+            domains.setdefault(domain or "核心能力", []).append(cap)
+
+        for domain_name, caps in domains.items():
+            safe_name = domain_name.replace(" ", "_").replace("-", "_")
+            lines.append(f'    subgraph {safe_name}["{escape(domain_name)}"]')
+            lines.append("        direction TB")
+
+            # Split into rows of MAX_COLS using subgraph for horizontal layout
+            for chunk_start in range(0, len(caps), MAX_COLS):
+                chunk = caps[chunk_start:chunk_start + MAX_COLS]
+                if len(chunk) > 1:
+                    subgraph_id = f"row_{safe_name}_{chunk_start}"
+                    lines.append(f'        subgraph {subgraph_id}[""]')
+                    lines.append("            direction LR")
+                    for cap in chunk:
+                        label = escape(cap.get("name", cap["id"]))
+                        lines.append(f'            {cap["id"]}["{label}"]')
+                    lines.append("        end")
+                else:
+                    cap = chunk[0]
+                    label = escape(cap.get("name", cap["id"]))
+                    lines.append(f'        {cap["id"]}["{label}"]')
+            lines.append("    end")
+
+    # ── Actors layer (bottom) ──
+    if actors:
+        lines.append('    subgraph Actors["参与者"]')
+        lines.append("        direction LR")
+        for actor in actors:
+            label = escape(actor.get("name", actor["id"]))
+            lines.append(f'        {actor["id"]}["{label}"]')
+        lines.append("    end")
+
+    # ── System → Capability links ──
+    for sys in systems:
+        for cap_id in sys.get("capabilityIds", []):
+            lines.append(f'    {sys["id"]} --> {cap_id}')
+
+    # ── Actor → Flow Step links ──
+    for step in flow_steps:
+        aid = step.get("actorId", "")
+        if aid:
+            lines.append(f'    {aid} --> {step["id"]}')
+
+    # ── Explicit relations ──
+    for rel in blueprint.get("relations", []):
+        src = rel.get("from", rel.get("sourceId", rel.get("source", "")))
+        tgt = rel.get("to", rel.get("targetId", rel.get("target", "")))
+        label = escape(rel.get("label", rel.get("type", "")))
+        if src and tgt and isinstance(src, str) and isinstance(tgt, str) and src.strip() and tgt.strip():
+            lines.append(f'    {src} -- "{label}" --> {tgt}')
+
+    content = "\n".join(lines) + "\n"
     target.write_text(content, encoding="utf-8")
