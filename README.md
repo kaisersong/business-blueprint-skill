@@ -85,6 +85,7 @@ cd business-blueprint-skill && pip install -e .
 | `--generate <output>` | Generate JSON + static HTML viewer package |
 | `--edit <blueprint.json>` | Refresh viewer for an existing blueprint (preserves human edits) |
 | `--export <blueprint.json>` | Export SVG, draw.io, Excalidraw, Mermaid artifacts |
+| `--export-auto <blueprint.json>` | Export SVG using content routing + free-flow layout |
 | `--validate <blueprint.json>` | Validate blueprint structure, output errors/warnings |
 | `--from <file>` | Read source material from file path |
 | `--industry <pack>` | Apply industry template pack (default: `common`) |
@@ -155,7 +156,7 @@ business-blueprint-skill/
 │   ├── clarify.py                # Clarification request builder
 │   ├── normalize.py              # Entity resolution & synonym merging
 │   ├── viewer.py                 # HTML viewer package writer
-│   ├── export_svg.py             # SVG exporter (two-pass layout)
+│   ├── export_svg.py             # SVG exporter (two-pass layout, content router, free-flow)
 │   ├── export_drawio.py          # draw.io exporter
 │   ├── export_excalidraw.py      # Excalidraw exporter
 │   ├── export_mermaid.py         # Mermaid markdown exporter
@@ -239,6 +240,10 @@ for rel in bp["relations"]:
 ---
 
 ## Version History
+
+**v0.5.0** — Content router & free-flow layout engine: `_content_router()` auto-selects views (architecture, capability map, swimlane, process chain) based on blueprint content; `_layout_free_flow()` computes free-form positions with domain grouping and auto-wrapping; `export_svg_auto()` combines routing + layout; `--export-auto` CLI flag; HTML viewer now dynamically shows tabs only for available views.
+
+**v0.4.0** — HTML viewer & layout fix: self-contained HTML viewer with three inline SVG views (architecture, capability map, swimlane), tab-based navigation, summary cards, dark theme support with grid background.
 
 **v0.3.1** — CLI fixes: `--from` long Chinese text no longer triggers `File name too long`, stdin pipe support for `--plan`, subprocess `text=True`/bytes compatibility guidance.
 

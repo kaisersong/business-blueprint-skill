@@ -85,6 +85,7 @@ cd business-blueprint-skill && pip install -e .
 | `--generate <输出>` | 生成 JSON + 静态 HTML 查看器包 |
 | `--edit <blueprint.json>` | 刷新现有蓝图的查看器（保留人工编辑） |
 | `--export <blueprint.json>` | 导出 SVG、draw.io、Excalidraw、Mermaid 图表 |
+| `--export-auto <blueprint.json>` | 使用内容路由 + 自由流式布局导出 SVG |
 | `--validate <blueprint.json>` | 验证蓝图结构，输出错误/警告 |
 | `--from <文件>` | 从指定文件读取源材料 |
 | `--industry <包名>` | 指定行业模板包（默认：`common`） |
@@ -155,7 +156,7 @@ business-blueprint-skill/
 │   ├── clarify.py                # 澄清请求构建器
 │   ├── normalize.py              # 实体解析与同义词合并
 │   ├── viewer.py                 # HTML 查看器写入器
-│   ├── export_svg.py             # SVG 导出器（两遍布局）
+│   ├── export_svg.py             # SVG 导出器（两遍布局、内容路由、自由流式布局）
 │   ├── export_drawio.py          # draw.io 导出器
 │   ├── export_excalidraw.py      # Excalidraw 导出器
 │   ├── export_mermaid.py         # Mermaid 导出器
@@ -239,6 +240,10 @@ for rel in bp["relations"]:
 ---
 
 ## 版本日志
+
+**v0.5.0** — 内容路由与自由流式布局引擎：`_content_router()` 根据蓝图内容自动选择视图（架构图、能力地图、泳道图、流程链）；`_layout_free_flow()` 按域分组、自动换行计算节点位置；`export_svg_auto()` 组合路由+布局；新增 CLI `--export-auto` 参数；HTML 查看器现在动态显示可用视图的标签页。
+
+**v0.4.0** — HTML 查看器与布局修复：自包含 HTML 查看器，内嵌三个 SVG 视图（架构图、能力地图、泳道图），标签页导航，汇总卡片，暗色主题支持网格背景。
 
 **v0.3.1** — CLI 修复：`--from` 参数长中文文本不再触发 `File name too long`，`--plan` 支持 stdin 管道输入。
 
