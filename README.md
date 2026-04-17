@@ -84,11 +84,14 @@ cd business-blueprint-skill && pip install -e .
 | `--plan "text"` | Parse raw text into canonical blueprint JSON |
 | `--generate <output>` | Generate JSON + static HTML viewer package |
 | `--edit <blueprint.json>` | Refresh viewer for an existing blueprint (preserves human edits) |
-| `--export <blueprint.json>` | Export SVG, draw.io, Excalidraw, Mermaid artifacts |
-| `--export-auto <blueprint.json>` | Export SVG using content routing + free-flow layout |
+| `--export <blueprint.json>` | Export diagrams (default: free-flow SVG + HTML viewer) |
+| `--export-auto <blueprint.json>` | Alias for --export (free-flow SVG + HTML viewer) |
+| `--html <output.html>` | Generate self-contained HTML viewer with inline SVG |
 | `--validate <blueprint.json>` | Validate blueprint structure, output errors/warnings |
 | `--from <file>` | Read source material from file path |
-| `--industry <pack>` | Apply industry template pack (default: `common`) |
+| `--industry <pack>` | Apply industry template pack (common, finance, manufacturing, retail) |
+| `--theme <dark|light>` | Color theme for output (default: dark) |
+| `--format <fmt>` | Export format: svg, drawio, excalidraw, mermaid, all |
 
 ### Typical Workflows
 
@@ -132,14 +135,14 @@ business-blueprint --export solution.blueprint.json
 
 ### SVG Architecture Export
 
-The SVG export renders a three-layer architecture diagram:
+The SVG export renders a free-flow L→R architecture diagram:
 
-- **Application Systems** (top) — ERP, CRM, POS, etc.
-- **Business Capabilities** (middle) — store operations, membership, order management
-- **Process Flows** (bottom) — swimlane flow steps with capability linkage
-- **Actors** (right column) — human roles aligned to their systems
+- **Main flow chain** (center row) — systems connected via flow steps, left to right
+- **Auxiliary systems** (rows above/below) — placed by category (database, security, cloud)
+- **Entry node** (left) — auto-generated from blueprint actors
+- **Arrows** — solid lines for data flow, dashed for support/dependency; cross-row elbows route below source nodes with collision avoidance
 
-Layer heights are computed dynamically via two-pass layout: first pass places all nodes, second pass computes exact content height so actors, multi-row flows, and stacked capabilities never overflow.
+The layout engine computes positions dynamically with overlap resolution, horizontal alignment, and mid-y collision avoidance. The region boundary box and SVG canvas auto-expand to contain all arrow paths.
 
 ---
 
@@ -240,6 +243,8 @@ for rel in bp["relations"]:
 ---
 
 ## Version History
+
+**v0.6.0** — Free-flow layout engine overhaul: arrow routing with cross-row elbow paths and mid_y collision avoidance; dark theme as default; all user-facing labels in Chinese (legend, footer, summary cards); arrowheads shrunk (8×6px, stroke-width 1.5) for cleaner look; region boundary box and SVG canvas dynamically expand to contain arrow paths; rendering z-order fixed (arrows behind nodes); `--html` flag for standalone viewer; `--format` and `--theme` CLI flags; description section from blueprint context; download SVG button.
 
 **v0.5.0** — Content router & free-flow layout engine: `_content_router()` auto-selects views (architecture, capability map, swimlane, process chain) based on blueprint content; `_layout_free_flow()` computes free-form positions with domain grouping and auto-wrapping; `export_svg_auto()` combines routing + layout; `--export-auto` CLI flag; HTML viewer now dynamically shows tabs only for available views.
 
