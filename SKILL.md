@@ -7,6 +7,30 @@ description: Use when turning presales requirements, meeting notes, or solution 
 
 Use the Python scripts in this repository as the execution surface.
 
+## Output Directory
+
+All generated files (blueprint JSON, viewers, exports) go into `projects/workspace/` — not the repository root.
+
+```bash
+python -m business_blueprint.cli --plan projects/workspace/solution.blueprint.json --from "..."
+python -m business_blueprint.cli --generate projects/workspace/solution.blueprint.json
+python -m business_blueprint.cli --export projects/workspace/solution.blueprint.json
+```
+
+## Industry Selection
+
+Choose `--industry` from exactly one of: `"common"`, `"finance"`, `"manufacturing"`, `"retail"`. Select the closest match based on the user's domain and materials; do not invent other values.
+
+| Industry | Seed content |
+|----------|-------------|
+| `common` | Empty skeleton — generic domains |
+| `finance` | Risk control, credit approval, compliance, customer profile |
+| `manufacturing` | Production planning, quality inspection, warehouse, supply chain |
+| `retail` | Store operations, membership, POS, order fulfillment |
+
+Available templates live under `business_blueprint/templates/{industry}/seed.json`.
+Passing an unrecognized value (e.g. `"software"`) will fail at runtime.
+
 ## Workflow Decision Tree
 
 ```
@@ -113,6 +137,36 @@ When running in an isolated Python sandbox (Jupyter, notebook, cloud REPL) that 
    - `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` — will raise NameError
    - `subprocess.run(["business-blueprint", ...])` — sandbox runs Python cells, not shell
    - `os.system()` — same reason
+
+## Architecture Diagram Generation
+
+When user requests an architecture diagram (keywords: "架构图", "architecture diagram", "--export", "diagram"):
+
+1. Read `references/architecture-design-system.md` for the complete design system.
+2. Read the appropriate template from `references/architecture-templates/` based on the user's domain:
+   - AWS/Serverless/Lambda → `serverless.md`
+   - Microservices/Kubernetes/微服务 → `microservices.md`
+   - Other → use `serverless.md` as a structural reference
+3. Read the blueprint JSON to extract entities and flow steps.
+4. Generate a self-contained HTML file with inline SVG following the design system rules.
+5. Write the output file to the same directory as the blueprint JSON.
+
+### Generation Rules
+- Use dark mode by default (`#020617` bg + 40px grid)
+- L→R data flow: Clients(左) → Frontend → Backend → Database(右)
+- Map `systems[].category` to semantic colors from the design system
+- Map `systems[].properties.type == "aws"` → AWS Region boundary box
+- Map `systems[].properties.type == "k8s"` → Kubernetes Cluster boundary box
+- Use `flowSteps[].seqIndex` for L→R ordering
+- Component sizing: 0-1 cap = small(44px h), 2-4 = medium(80px h), 5+ = large(80px h)
+- Z-order: bg → grid → title → region → arrows → nodes → legend → cards → footer
+- Component border: `rx="8"`, `stroke-width="2"`
+- Region border: `rx="16"`, `stroke-dasharray="8,4"`, `opacity="0.4"`
+
+### Output
+- Single HTML file: `{blueprint_stem}.html` alongside the blueprint JSON
+- No external dependencies (except Google Fonts CDN for JetBrains Mono)
+- Opens in any browser, printable to PDF
 
 ## Error Handling
 

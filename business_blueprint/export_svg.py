@@ -11,6 +11,7 @@ Follows the fireworks-tech-graph pattern:
 from __future__ import annotations
 
 import math
+import re as _re
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -59,7 +60,7 @@ C_DARK = {
     "flow_fill": "#422006",
     "flow_stroke": "#FBBF24",
     "arrow": "#34D399",
-    "arrow_muted": "#475569",
+    "arrow_muted": "#6B7280",
     "arrow_label": "#CBD5E1",
     "arrow_label_bg": "#1E293B",
 }
@@ -79,27 +80,31 @@ def _resolve_theme(name: str = "light") -> dict:
 SYSTEM_CATEGORY_COLORS: dict[str, dict[str, dict[str, str]]] = {
     "frontend": {
         "light": {"fill": "#ECFEFF", "stroke": "#0891B2"},
-        "dark": {"fill": "#083344", "stroke": "#22D3EE"},
+        "dark": {"fill": "#0C1929", "stroke": "#5B8DB8"},
     },
     "backend": {
         "light": {"fill": "#ECFDF5", "stroke": "#10B981"},
-        "dark": {"fill": "#064E3B", "stroke": "#34D399"},
+        "dark": {"fill": "#0C1F1E", "stroke": "#5EA89A"},
     },
     "database": {
         "light": {"fill": "#F5F3FF", "stroke": "#8B5CF6"},
-        "dark": {"fill": "#2E1065", "stroke": "#A78BFA"},
+        "dark": {"fill": "#1A1530", "stroke": "#8B82B0"},
+    },
+    "message_bus": {
+        "light": {"fill": "#F0FDF4", "stroke": "#22C55E"},
+        "dark": {"fill": "#111F14", "stroke": "#6DAA7A"},
     },
     "cloud": {
         "light": {"fill": "#FFFBEB", "stroke": "#F59E0B"},
-        "dark": {"fill": "#451A03", "stroke": "#FBBF24"},
+        "dark": {"fill": "#1F1A0F", "stroke": "#A09060"},
     },
     "security": {
         "light": {"fill": "#FFF1F2", "stroke": "#F43F5E"},
-        "dark": {"fill": "#4C0519", "stroke": "#FB7185"},
+        "dark": {"fill": "#1F1015", "stroke": "#B07878"},
     },
     "external": {
         "light": {"fill": "#F8FAFC", "stroke": "#64748B"},
-        "dark": {"fill": "#1E293B", "stroke": "#94A3B8"},
+        "dark": {"fill": "#141B24", "stroke": "#8090A0"},
     },
 }
 
@@ -193,6 +198,17 @@ def _arrow_line(x1: int, y1: int, x2: int, y2: int,
         f'stroke="{color}" stroke-width="1.5"{dash} '
         f'marker-end="url(#{marker_id})"/>'
     )
+
+
+def _render_arrow_line(sx: int, sy: int, tx: int, ty: int, arrow: dict, colors: dict) -> str:
+    """Draw a straight arrow line with proper style and marker for free-flow layout."""
+    if arrow.get("dashed"):
+        style = f'stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"'
+        marker = "arrow-dashed"
+    else:
+        style = f'stroke="{colors["arrow"]}" stroke-width="1.5"'
+        marker = "arrow-solid"
+    return f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" {style} marker-end="url(#{marker})"/>'
 
 
 def _arrow_label(mx: int, my: int, label: str,
@@ -497,330 +513,6 @@ def _layout_architecture(blueprint: dict[str, Any]) -> dict:
     }
 
 
-# ─── Content router ──────────────────────────────────────────────
-def _content_router(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
-    """Analyze blueprint content and decide which views to generate.
-
-    Returns a list of view specs, each with:
-        - type: "architecture" | "capability_map" | "swimlane" | "process_chain"
-        - title: display title for the view
-        - include: set of entity ids to render in this view
-        - groups: optional grouping hints (domains, lanes, etc.)
-        - arrows: list of {from, to, label, dashed} for this view
-
-    Routing rules:
-        - Systems + capabilities → architecture view
-        - Capabilities with domains → capability map (domain-grouped)
-        - Actors + relations → swimlane view
-        - Flow steps with nextStepIds → process chain view
-    """
-    lib = blueprint.get("library", {})
-    systems = lib.get("systems", [])
-    capabilities = lib.get("capabilities", [])
-    actors = lib.get("actors", [])
-    flow_steps = lib.get("flowSteps", [])
-    relations = blueprint.get("relations", [])
-
-    views: list[dict[str, Any]] = []
-
-    # ── Architecture view: systems → capabilities ──
-    if systems and capabilities:
-        sys_ids = {s["id"] for s in systems}
-        cap_ids = {c["id"] for c in capabilities}
-        # Include actors that support any capability in this view
-        actor_ids = set()
-        for rel in relations:
-            from_id = rel.get("from", "")
-            to_id = rel.get("to", "")
-            if from_id.startswith("actor-") and to_id in cap_ids:
-                actor_ids.add(from_id)
-
-        arrows = []
-        for s in systems:
-            for cid in s.get("capabilityIds", []):
-                if cid in cap_ids:
-                    arrows.append({"from": s["id"], "to": cid, "label": "supports", "dashed": False})
-
-        views.append({
-            "type": "architecture",
-            "title": "Application Architecture",
-            "include": sys_ids | cap_ids | actor_ids,
-            "groups": [],
-            "arrows": arrows,
-        })
-
-    # ── Capability map: domain-grouped capabilities ──
-    if capabilities:
-        domain_caps: dict[str, list[str]] = {}
-        for cap in capabilities:
-            domain = cap.get("domain", cap.get("category", "Uncategorized"))
-            domain_caps.setdefault(domain, []).append(cap["id"])
-
-        views.append({
-            "type": "capability_map",
-            "title": "Capability Map",
-            "include": {c["id"] for c in capabilities},
-            "groups": [{"label": d, "ids": cids} for d, cids in domain_caps.items()],
-            "arrows": [],
-        })
-
-    # ── Swimlane view: actors with their capabilities ──
-    if actors and relations:
-        actor_cap_map: dict[str, list[str]] = {}
-        for rel in relations:
-            from_id = rel.get("from", "")
-            to_ids = [t.strip() for t in str(rel.get("to", "")).split(",") if t.strip()]
-            if from_id.startswith("actor-"):
-                actor_cap_map.setdefault(from_id, []).extend(to_ids)
-
-        if actor_cap_map:
-            include_ids: set[str] = set()
-            for aid, cids in actor_cap_map.items():
-                include_ids.add(aid)
-                include_ids.update(cids)
-
-            views.append({
-                "type": "swimlane",
-                "title": "Actor-Capability Swimlane",
-                "include": include_ids,
-                "groups": [{"label": a.get("name", a["id"]), "ids": actor_cap_map.get(a["id"], [])} for a in actors if a["id"] in actor_cap_map],
-                "arrows": [],
-            })
-
-    # ── Process chain: flow steps with sequencing ──
-    if flow_steps:
-        chained = [fs for fs in flow_steps if fs.get("nextStepIds") or fs.get("prevStepIds")]
-        if chained or len(flow_steps) > 1:
-            step_ids = {fs["id"] for fs in flow_steps}
-            arrows = []
-            for fs in flow_steps:
-                for next_id in fs.get("nextStepIds", []):
-                    if next_id in step_ids:
-                        arrows.append({"from": fs["id"], "to": next_id, "label": fs.get("processName", ""), "dashed": False})
-                # Also from actor to first step
-                actor_id = fs.get("actorId", "")
-                if actor_id and actor_id not in [a["from"] for a in arrows]:
-                    arrows.append({"from": actor_id, "to": fs["id"], "label": "", "dashed": True})
-
-            views.append({
-                "type": "process_chain",
-                "title": "Process Flow Chain",
-                "include": step_ids | {fs.get("actorId", "") for fs in flow_steps if fs.get("actorId")},
-                "groups": [],
-                "arrows": arrows,
-            })
-
-    # Fallback: if nothing matched, generate a basic capability-only view
-    if not views and capabilities:
-        views.append({
-            "type": "capability_map",
-            "title": "Capabilities",
-            "include": {c["id"] for c in capabilities},
-            "groups": [{"label": "All", "ids": [c["id"] for c in capabilities]}],
-            "arrows": [],
-        })
-
-    return views
-
-
-# ─── Free-flow layout engine ─────────────────────────────────────
-def _layout_free_flow(
-    blueprint: dict[str, Any],
-    view_spec: dict[str, Any],
-    colors: dict | None = None,
-) -> dict:
-    """Compute free-form positions for nodes based on view spec.
-
-    Unlike _layout_architecture() which uses rigid columns, this engine:
-        - Groups nodes by domain/lane from view_spec["groups"]
-        - Auto-wraps groups when they exceed canvas width
-        - Positions nodes in a grid within each group
-        - Returns positioned nodes, arrows, group bounding boxes, and canvas size
-
-    Returns:
-        {
-            "nodes": {id: {x, y, kind, label, group}},
-            "arrows": [{from, to, label, dashed}],
-            "groups": [{label, x, y, w, h}],
-            "width": int,
-            "height": int,
-        }
-    """
-    c = colors if colors is not None else C
-    lib = blueprint.get("library", {})
-    include = view_spec.get("include", set())
-
-    # Build full entity lookup
-    entity_map: dict[str, dict] = {}
-    for s in lib.get("systems", []):
-        entity_map[s["id"]] = {**s, "kind": "system"}
-    for cap in lib.get("capabilities", []):
-        entity_map[cap["id"]] = {**cap, "kind": "capability"}
-    for actor in lib.get("actors", []):
-        entity_map[actor["id"]] = {**actor, "kind": "actor"}
-    for fs in lib.get("flowSteps", []):
-        entity_map[fs["id"]] = {**fs, "kind": "flowStep"}
-
-    # Filter to included entities
-    entities = {eid: entity_map[eid] for eid in include if eid in entity_map}
-    if not entities:
-        return {"nodes": {}, "arrows": [], "groups": [], "width": 400, "height": 200}
-
-    view_type = view_spec.get("type", "capability_map")
-    groups = view_spec.get("groups", [])
-    arrows = list(view_spec.get("arrows", []))
-
-    # Layout parameters by view type
-    layouts = {
-        "architecture": {"card_w": NODE_W, "card_h": NODE_H, "gap": COL_GAP, "pad": LAYER_PAD, "cols_per_group": 0},
-        "capability_map": {"card_w": 180, "card_h": 52, "gap": 14, "pad": 24, "cols_per_group": 0},
-        "swimlane": {"card_w": 160, "card_h": 42, "gap": 12, "pad": 20, "cols_per_group": 0},
-        "process_chain": {"card_w": 140, "card_h": 40, "gap": 20, "pad": 20, "cols_per_group": 0},
-    }
-    lp = layouts.get(view_type, layouts["capability_map"])
-    card_w, card_h, gap, pad = lp["card_w"], lp["card_h"], lp["gap"], lp["pad"]
-
-    # Max canvas width — auto-wrap groups that exceed this
-    max_w = 1200
-    content_w = max_w - CANVAS_X * 2
-
-    nodes: dict[str, dict] = {}
-    group_boxes: list[dict] = []
-    current_y = 0
-
-    if groups:
-        # ── Group-based layout ──
-        # Calculate group widths to determine wrapping
-        group_widths: list[int] = []
-        for g in groups:
-            g_ids = [eid for eid in g.get("ids", []) if eid in entities]
-            if not g_ids:
-                group_widths.append(0)
-                continue
-            n = len(g_ids)
-            # Estimate cols: fit as many as possible within a reasonable group width
-            cols = max(1, min(n, int(content_w / (card_w + gap))))
-            rows = math.ceil(n / cols) if cols > 0 else n
-            gw = cols * (card_w + gap) - gap + pad * 2
-            group_widths.append(gw)
-
-        # Wrap groups into rows
-        group_rows: list[list[int]] = [[]]
-        row_w = 0
-        for gi, gw in enumerate(group_widths):
-            if gw == 0:
-                continue
-            if row_w + gw > content_w and group_rows[-1]:
-                group_rows.append([])
-                row_w = 0
-            group_rows[-1].append(gi)
-            row_w += gw + gap
-
-        # Calculate row heights
-        row_heights: list[int] = []
-        for row in group_rows:
-            max_h = 0
-            for gi in row:
-                g = groups[gi]
-                g_ids = [eid for eid in g.get("ids", []) if eid in entities]
-                n = len(g_ids)
-                if view_type == "swimlane":
-                    cols = max(1, min(n, 4))
-                elif view_type == "process_chain":
-                    cols = max(1, min(n, 6))
-                else:
-                    cols = max(1, min(n, int((content_w / len(group_rows[0]) if group_rows[0] else content_w) / (card_w + gap))))
-                rows_count = math.ceil(n / cols) if cols > 0 else n
-                gh = 28 + pad + rows_count * (card_h + gap) + pad  # header + pad + cards + pad
-                if gh > max_h:
-                    max_h = gh
-            row_heights.append(max_h + gap)
-
-        # Render groups
-        y = 0
-        for ri, row in enumerate(group_rows):
-            row_start_y = y
-            # Calculate available width for this row
-            row_total_w = sum(group_widths[gi] for gi in row) + (len(row) - 1) * gap
-            x_start = CANVAS_X + (content_w - row_total_w) / 2
-
-            for gi in row:
-                g = groups[gi]
-                g_label = g.get("label", "")
-                g_ids = [eid for eid in g.get("ids", []) if eid in entities]
-                if not g_ids:
-                    continue
-
-                n = len(g_ids)
-                if view_type == "swimlane":
-                    cols = max(1, min(n, 4))
-                elif view_type == "process_chain":
-                    cols = max(1, min(n, min(6, n)))
-                else:
-                    row_group_count = len(row)
-                    available_w = content_w / row_group_count - gap
-                    cols = max(1, min(n, int(available_w / (card_w + gap))))
-
-                rows_count = math.ceil(n / cols) if cols > 0 else n
-                gw = cols * (card_w + gap) - gap + pad * 2
-                gh = 28 + pad + rows_count * (card_h + gap) + pad
-
-                gx = x_start
-                group_boxes.append({"label": g_label, "x": gx, "y": row_start_y, "w": gw, "h": gh})
-
-                # Place cards within group
-                cx = gx + pad
-                cy = row_start_y + 28 + pad
-                for ci, eid in enumerate(g_ids):
-                    col = ci % cols
-                    row_in_group = ci // cols
-                    nx = cx + col * (card_w + gap)
-                    ny = cy + row_in_group * (card_h + gap)
-                    ent = entities[eid]
-                    nodes[eid] = {
-                        "x": int(nx),
-                        "y": int(ny),
-                        "kind": ent["kind"],
-                        "label": ent.get("name", eid),
-                        "group": g_label,
-                    }
-
-                x_start += gw + gap
-            y += row_heights[ri] if ri < len(row_heights) else gh + gap
-    else:
-        # ── Ungrouped layout: simple grid with auto-wrap ──
-        ids = list(entities.keys())
-        n = len(ids)
-        cols = max(1, min(n, int(content_w / (card_w + gap))))
-        rows = math.ceil(n / cols) if cols > 0 else n
-
-        for i, eid in enumerate(ids):
-            col = i % cols
-            row = i // cols
-            ent = entities[eid]
-            nodes[eid] = {
-                "x": CANVAS_X + col * (card_w + gap),
-                "y": col * (card_h + gap),
-                "kind": ent["kind"],
-                "label": ent.get("name", eid),
-                "group": "",
-            }
-        y = rows * (card_h + gap)
-
-    # Calculate canvas size
-    max_node_y = max((n["y"] + card_h for n in nodes.values()), default=0)
-    max_group_bottom = max((g["y"] + g["h"] for g in group_boxes), default=0)
-    height = max(max_node_y, max_group_bottom) + CANVAS_PAD_TOP + 60
-
-    return {
-        "nodes": nodes,
-        "arrows": arrows,
-        "groups": group_boxes,
-        "width": max_w,
-        "height": height,
-    }
-
-
 def _layer_svg(label: str, header_y: int, border_y: int, w: int, h: int,
                colors: dict | None = None) -> str:
     """Layer: border wraps header + content, header has its own bg color."""
@@ -842,9 +534,10 @@ def _title_svg(title: str, subtitle: str, w: int,
                colors: dict | None = None) -> str:
     c = colors if colors is not None else C
     ty = 10
+    rect_w = w - CANVAS_X  # rect starts at CANVAS_X, so width = w - CANVAS_X
     return (
         f'<g class="title-block">'
-        f'<rect x="{CANVAS_X}" y="{ty}" width="{w}" height="52" '
+        f'<rect x="{CANVAS_X}" y="{ty}" width="{rect_w}" height="52" '
         f'rx="6" fill="{c["canvas"]}" stroke="{c["border"]}" stroke-width="1"/>'
         f'<text x="{CANVAS_X + 16}" y="{ty + 24}" '
         f'font-size="16" fill="{c["text_main"]}" font-family="{FONT}" '
@@ -860,10 +553,10 @@ def _legend_svg(x: int, y: int, colors: dict | None = None) -> str:
     """Legend showing node types and arrow meanings (fireworks-tech-graph pattern)."""
     c = colors if colors is not None else C
     items = [
-        ("System", c["sys_fill"], c["sys_stroke"], 4),
-        ("Capability", c["cap_fill"], c["cap_stroke"], 8),
-        ("Flow Step", c["flow_fill"], c["flow_stroke"], 6),
-        ("Actor", c["actor_fill"], c["actor_stroke"], 22),
+        ("系统", c["sys_fill"], c["sys_stroke"], 4),
+        ("能力", c["cap_fill"], c["cap_stroke"], 8),
+        ("流程步骤", c["flow_fill"], c["flow_stroke"], 6),
+        ("角色", c["actor_fill"], c["actor_stroke"], 22),
     ]
     legend_total_h = 30 + len(items) * 22 + 4 + 2 * 22 + 8  # items + gap + arrows + padding
     parts = [
@@ -917,13 +610,13 @@ def _svg_defs(colors: dict | None = None, theme: str = "light") -> str:
     return (
         '<defs>'
         f'{grid_pattern}'
-        f'<marker id="arrow-solid" markerWidth="10" markerHeight="8" '
-        f'refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse">'
-        f'<polygon points="0 0, 10 4, 0 8" fill="{c["arrow"]}"/>'
+        f'<marker id="arrow-solid" markerWidth="8" markerHeight="6" '
+        f'refX="4" refY="3" orient="auto" markerUnits="userSpaceOnUse">'
+        f'<polygon points="0 0, 8 3, 0 6" fill="{c["arrow"]}"/>'
         f'</marker>'
-        f'<marker id="arrow-dashed" markerWidth="10" markerHeight="8" '
-        f'refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse">'
-        f'<polygon points="0 0, 10 4, 0 8" fill="{c["arrow_muted"]}"/>'
+        f'<marker id="arrow-dashed" markerWidth="8" markerHeight="6" '
+        f'refX="4" refY="3" orient="auto" markerUnits="userSpaceOnUse">'
+        f'<polygon points="0 0, 8 3, 0 6" fill="{c["arrow_muted"]}"/>'
         f'</marker>'
         '</defs>'
     )
@@ -941,7 +634,7 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") ->
     colors = _resolve_theme(theme)
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry = blueprint.get("meta", {}).get("industry", "")
-    subtitle = f"Industry: {industry}" if industry else "Application Architecture"
+    subtitle = f"行业：{industry}" if industry else "应用架构"
 
     layout = _layout_architecture(blueprint)
     w, h = layout["width"], layout["height"]
@@ -957,6 +650,7 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") ->
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+        f'viewBox="0 0 {w} {h}" '
         f'font-family="{FONT}">',
         _svg_defs(colors=colors, theme=theme),
         bg_rect,
@@ -1035,11 +729,11 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") ->
 
     card_y = h - 50
     card_data = [
-        ("SYSTEMS", str(n_systems)),
-        ("CAPABILITIES", str(n_capabilities)),
-        ("ACTORS", str(n_actors)),
-        ("FLOW STEPS", str(n_flow_steps)),
-        ("COVERAGE", sys_coverage),
+        ("系统", str(n_systems)),
+        ("能力", str(n_capabilities)),
+        ("角色", str(n_actors)),
+        ("流程", str(n_flow_steps)),
+        ("覆盖率", sys_coverage),
     ]
     card_w = 110
     card_h = 38
@@ -1064,34 +758,588 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") ->
     target.write_text("\n".join(parts), encoding="utf-8")
 
 
-# ─── Free-flow SVG renderer ──────────────────────────────────────
+# ─── Free-flow L→R layout engine ─────────────────────────────────
+
+# Layout columns for L→R data flow
+_FREE_FLOW_COLS = [
+    {"label": "Entry", "x": 80, "systems": []},
+    {"label": "Frontend/Cloud", "x": 310, "categories": ["cloud", "frontend"]},
+    {"label": "Backend/Compute", "x": 530, "categories": ["backend", "message_bus"]},
+    {"label": "Database/Storage", "x": 750, "categories": ["database"]},
+    {"label": "Support", "x": 750, "categories": ["security", "external"]},
+]
+
+# Default row positions
+_FREE_FLOW_ROWS = {
+    "main": {"y": 230, "h": 80},
+    "top": {"y": 130, "h": 44},
+    "bottom": {"y": 360, "h": 80},
+    "infra": {"y": 480, "h": 80},
+}
+
+
+def _categorize_system(sys_obj: dict) -> str:
+    """Determine system category from properties or aliases."""
+    cat = sys_obj.get("category", "").lower()
+    if cat:
+        return cat
+    props = sys_obj.get("properties", {})
+    svc = props.get("service", "").lower()
+    # AWS service → category mapping
+    if svc in ("lambda",):
+        return "backend"
+    if svc in ("apigateway", "cloudfront"):
+        return "cloud"
+    if svc in ("dynamodb", "rds", "s3"):
+        return "database"
+    if svc in ("cognito-idp", "secretsmanager", "kms"):
+        return "security"
+    if svc in ("events", "sqs", "sns"):
+        return "message_bus"
+    if svc in ("cloudwatch", "xray"):
+        return "cloud"  # keep as cloud for coloring, but observability row logic handles placement
+    if svc in ("cloudformation",):
+        return "external"
+    name = sys_obj.get("name", "").lower()
+    if any(k in name for k in ("gateway", "cloudfront")):
+        return "cloud"
+    if any(k in name for k in ("lambda", "function", "compute")):
+        return "backend"
+    if any(k in name for k in ("dynamo", "rds", "database", "storage")):
+        return "database"
+    if any(k in name for k in ("cognito", "secret", "auth")):
+        return "security"
+    if any(k in name for k in ("event", "sqs", "sns", "queue")):
+        return "message_bus"
+    return "external"
+
+
+def _get_subtitle(sys_obj: dict) -> list[str]:
+    """Extract 2-3 subtitle lines from system properties."""
+    props = sys_obj.get("properties", {})
+    features = props.get("features", [])
+    desc = sys_obj.get("description", "")
+    lines: list[str] = []
+    if desc:
+        # Take first meaningful phrase
+        parts = desc.replace("，", ",").replace("、", ",").split(",")
+        if parts and parts[0].strip():
+            lines.append(parts[0].strip()[:40])
+    for f in features[:2]:
+        lines.append(str(f)[:18])
+    # Truncate long subtitles to prevent overflow (node w≈140px, usable≈110px)
+    # CJK ~8px/char, ASCII ~6px/char → max ~14 chars for mixed, ~18 for ASCII
+    truncated = []
+    for line in lines:
+        px = sum(8 if ord(c) > 127 else 6 for c in line)
+        if px > 110:
+            # Truncate to fit ~110px
+            chars = 0
+            total_px = 0
+            for c in line:
+                char_px = 8 if ord(c) > 127 else 6
+                if total_px + char_px > 110:
+                    break
+                chars += 1
+                total_px += char_px
+            truncated.append(line[:chars] + "…")
+        else:
+            truncated.append(line)
+    return truncated[:3] or [""]
+
+
+def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
+    """Layout systems in L→R data flow columns.
+
+    Strategy: place main flow systems on a horizontal center row,
+    then scatter supporting systems across different columns above/below
+    their related main flow position (not all stacked in one column).
+
+    Row layout (matching manual version):
+      y=120: auth row — Cognito above API Gateway
+      y=230: main flow — Clients → API Gateway → Lambda → DynamoDB
+      y=360: observability — CloudWatch, X-Ray below related systems
+      y=460: infrastructure — SAM/CDK at bottom
+    """
+    lib = blueprint.get("library", {})
+    systems = lib.get("systems", [])
+    flow_steps = lib.get("flowSteps", [])
+    actors = lib.get("actors", [])
+
+    systems_by_id = {s["id"]: s for s in systems}
+    steps_by_id = {s["id"]: s for s in flow_steps}
+
+    # ── Step 1: Find the main flow chain ──
+    process_groups: dict[str, list[dict]] = {}
+    for step in flow_steps:
+        proc = step.get("processName", "default")
+        process_groups.setdefault(proc, []).append(step)
+    main_chain_steps = max(process_groups.values(), key=len) if process_groups else []
+    main_chain_steps.sort(key=lambda s: s.get("seqIndex", 0))
+
+    main_flow_sys_ids: set[str] = set()
+    for step in main_chain_steps:
+        for sid in step.get("systemIds", []):
+            main_flow_sys_ids.add(sid)
+
+    # ── Step 2: Build main flow order (unique systems, preserving seqIndex order) ──
+    main_flow_ordered: list[str] = []
+    seen_main: set[str] = set()
+    for step in main_chain_steps:
+        for sid in step.get("systemIds", []):
+            if sid not in seen_main:
+                main_flow_ordered.append(sid)
+                seen_main.add(sid)
+
+    # ── Step 3: Keyword sets for classification ──
+    OBSERVABILITY_KEYWORDS = ("cloudwatch", "xray", "x-ray", "x_ray", "monitoring", "logging", "tracing", "alarm", "metric")
+    INFRA_KEYWORDS = ("sam", "cdk", "cloudformation", "terraform", "deployment", "infrastructure", "infra")
+    AUTH_KEYWORDS = ("cognito", "auth", "kms", "iam")
+    SECRET_KEYWORDS = ("secret",)
+    ASYNC_KEYWORDS = ("eventbridge", "event-bridge", "sqs", "sns", "async", "queue", "event")
+
+    # ── Step 4: Define layout positions ──
+    # Main flow column positions — spread wider (220px gap between nodes)
+    # If blueprint has actors, shift everything right to make room for Clients node
+    has_actors = bool(actors)
+    if has_actors:
+        MAIN_COLS = [80, 310, 500, 720, 930, 1150]
+    else:
+        MAIN_COLS = [80, 310, 500, 720, 930, 1150]
+
+    # Row Y positions
+    AUTH_Y = 130       # auth systems above main (50px gap to main row)
+    MAIN_Y = 230       # main data flow
+    OBSERVABILITY_Y = 360  # observability below main
+    INFRA_Y = 460      # infrastructure at bottom
+
+    nodes: dict[str, dict] = {}
+
+    # Helper: node height from capabilities and subtitle content
+    def node_h(s: dict) -> int:
+        caps = len(s.get("capabilityIds", []))
+        base_h = 80 if caps >= 2 else 60
+        # Ensure height fits subtitle content (title 14px + gap 8 + subs 14px each)
+        subs = _get_subtitle(s)
+        needed_h = 14 + 8 + len(subs) * 14
+        return max(base_h, needed_h)
+
+    def node_w(s: dict) -> int:
+        caps = len(s.get("capabilityIds", []))
+        return 160 if caps >= 5 else 150 if caps >= 2 else 140
+
+    # ── Step 4b: Create entry node if blueprint has actors ──
+    if has_actors:
+        actor_names = [a.get("name", "Client") for a in actors]
+        if len(actor_names) > 1:
+            clients_label = " / ".join(actor_names[:2]) + ("..." if len(actor_names) > 2 else "")
+        else:
+            clients_label = actor_names[0]
+        # Auto-size width to fit label, capped to avoid overlap with next column
+        label_px = sum(8 if ord(c) > 127 else 6 for c in clients_label)
+        label_w = min(max(140, label_px + 24), 200)
+        nodes["clients"] = {
+            "x": 80, "y": MAIN_Y, "w": label_w, "h": 80,
+            "label": clients_label,
+            "category": "external",
+            "subtitles": [a.get("name", "") for a in actors[:2]],
+            "sys": {"id": "clients", "name": clients_label},
+        }
+
+    # ── Step 5: Place main flow systems on center row ──
+    # If there are actors, shift main flow right by 1 column
+    col_offset = 1 if has_actors else 0
+    main_col_idx = col_offset
+    main_sys_positions: dict[str, int] = {}  # sys_id → column index for related alignment
+
+    for sid in main_flow_ordered:
+        s = systems_by_id[sid]
+        col_x = MAIN_COLS[main_col_idx] if main_col_idx < len(MAIN_COLS) else 310 + main_col_idx * 220
+        main_sys_positions[sid] = main_col_idx
+        nodes[sid] = {
+            "x": col_x, "y": MAIN_Y, "w": node_w(s), "h": node_h(s),
+            "label": s["name"],
+            "category": _categorize_system(s),
+            "subtitles": _get_subtitle(s),
+            "sys": s,
+        }
+        main_col_idx += 1
+
+    # Center-align all main flow nodes: compute max height, adjust y so centers match
+    if main_flow_ordered:
+        max_h = max(nodes[sid]["h"] for sid in main_flow_ordered)
+        target_center = MAIN_Y + max_h // 2
+        for sid in main_flow_ordered:
+            n = nodes[sid]
+            n["y"] = target_center - n["h"] // 2
+
+    # ── Step 6: Place non-main-flow systems with spread columns ──
+    # Each supporting system gets placed relative to its related main flow column.
+    # Systems of the same type in the same row are spread horizontally.
+    for s in systems:
+        sid = s["id"]
+        if sid in nodes:
+            continue
+
+        name_lower = s.get("name", "").lower()
+        svc = s.get("properties", {}).get("service", "").lower()
+        combined = f"{name_lower} {svc}"
+
+        if any(k in combined for k in AUTH_KEYWORDS):
+            # Auth: above main flow, aligned to API Gateway column
+            col_idx = main_sys_positions.get("sys-api-gateway", 1)
+            col_x = MAIN_COLS[col_idx] if col_idx < len(MAIN_COLS) else 310
+            nodes[sid] = {
+                "x": col_x, "y": AUTH_Y, "w": node_w(s), "h": 50,
+                "label": s["name"],
+                "category": _categorize_system(s),
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+        elif any(k in combined for k in ASYNC_KEYWORDS):
+            # Async: spread horizontally in auth row, right of main flow
+            async_systems = [ss for ss in systems
+                            if any(kw in f"{ss.get('name','').lower()} {ss.get('properties',{}).get('service','')}"
+                                   for kw in ASYNC_KEYWORDS)]
+            async_idx = next((i for i, ss in enumerate(async_systems) if ss["id"] == sid), 0)
+            base_col = main_sys_positions.get("sys-lambda", 2) + async_idx
+            col_x = MAIN_COLS[min(base_col, len(MAIN_COLS) - 1)]
+            nodes[sid] = {
+                "x": col_x, "y": AUTH_Y, "w": node_w(s), "h": 65,
+                "label": s["name"],
+                "category": _categorize_system(s),
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+        elif any(k in combined for k in OBSERVABILITY_KEYWORDS):
+            # Observability: spread horizontally below main flow
+            obs_systems = [ss for ss in systems
+                          if any(kw in f"{ss.get('name','').lower()} {ss.get('properties',{}).get('service','')}"
+                                 for kw in OBSERVABILITY_KEYWORDS)]
+            obs_idx = next((i for i, ss in enumerate(obs_systems) if ss["id"] == sid), 0)
+            base_col = main_sys_positions.get("sys-lambda", 2) + obs_idx
+            col_x = MAIN_COLS[min(base_col, len(MAIN_COLS) - 1)]
+            nodes[sid] = {
+                "x": col_x, "y": OBSERVABILITY_Y, "w": node_w(s), "h": 65,
+                "label": s["name"],
+                "category": _categorize_system(s),
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+        elif any(k in combined for k in SECRET_KEYWORDS):
+            # Secrets: infra row, right of Lambda
+            col_idx = main_sys_positions.get("sys-lambda", 2) + 1
+            col_x = MAIN_COLS[min(col_idx, len(MAIN_COLS) - 1)]
+            nodes[sid] = {
+                "x": col_x, "y": INFRA_Y, "w": node_w(s), "h": 65,
+                "label": s["name"],
+                "category": _categorize_system(s),
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+        elif any(k in combined for k in INFRA_KEYWORDS):
+            # Infrastructure: bottom row, centered under Lambda
+            col_idx = main_sys_positions.get("sys-lambda", 2)
+            col_x = MAIN_COLS[min(col_idx, len(MAIN_COLS) - 1)]
+            nodes[sid] = {
+                "x": col_x, "y": INFRA_Y, "w": node_w(s), "h": 65,
+                "label": s["name"],
+                "category": _categorize_system(s),
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+        else:
+            # Fallback: place by category into appropriate row
+            cat = _categorize_system(s)
+            rel_col = _find_related_column_idx(sid, systems_by_id, steps_by_id, main_flow_ordered, main_sys_positions)
+            col_x = MAIN_COLS[min(rel_col, len(MAIN_COLS) - 1)]
+            if cat in ("database",):
+                row_y = OBSERVABILITY_Y  # data layer below main
+            elif cat in ("security",):
+                row_y = INFRA_Y  # security at bottom
+            elif cat in ("cloud", "message_bus"):
+                row_y = AUTH_Y  # network/messaging above main
+            else:
+                row_y = OBSERVABILITY_Y  # default: below main
+            nodes[sid] = {
+                "x": col_x, "y": row_y, "w": node_w(s), "h": node_h(s),
+                "label": s["name"],
+                "category": cat,
+                "subtitles": _get_subtitle(s),
+                "sys": s,
+            }
+
+    # ── Step 7: Resolve overlaps — grid-based push-down ──
+    # Group nodes by approximate column (x position), then ensure vertical gaps
+    COL_BUCKET = 80  # group nodes within 80px x-range as same column
+    col_buckets: dict[int, list[str]] = {}
+    for sid, n in nodes.items():
+        bucket = round(n["x"] / COL_BUCKET)
+        col_buckets.setdefault(bucket, []).append(sid)
+
+    MIN_V_GAP = 16  # minimum vertical gap between nodes in same column
+    for bucket, sids in col_buckets.items():
+        sids.sort(key=lambda sid: nodes[sid]["y"])
+        for i in range(1, len(sids)):
+            prev = nodes[sids[i - 1]]
+            curr = nodes[sids[i]]
+            prev_bottom = prev["y"] + prev["h"]
+            required_y = prev_bottom + MIN_V_GAP
+            if curr["y"] < required_y:
+                curr["y"] = required_y
+
+    # ── Step 7b: Horizontal alignment — align nodes in same row to common center ──
+    ROW_BUCKET = 40  # group nodes within 40px y-range as same row
+    row_buckets: dict[int, list[str]] = {}
+    for sid, n in nodes.items():
+        bucket = round(n["y"] / ROW_BUCKET)
+        row_buckets.setdefault(bucket, []).append(sid)
+
+    for bucket, sids in row_buckets.items():
+        if len(sids) <= 1:
+            continue
+        # Align vertical centers of all nodes in this row
+        max_h = max(nodes[sid]["h"] for sid in sids)
+        target_center = min(nodes[sid]["y"] + nodes[sid]["h"] // 2 for sid in sids)
+        # Use the center of the tallest node as the anchor
+        for sid in sids:
+            n = nodes[sid]
+            n["y"] = target_center - n["h"] // 2
+
+    # ── Step 8: Build arrows from flowSteps ──
+    arrows: list[dict] = []
+    for step in flow_steps:
+        for next_id in step.get("nextStepIds", []):
+            next_step = steps_by_id.get(next_id)
+            if not next_step:
+                continue
+            src_ids = step.get("systemIds", [])
+            tgt_ids = next_step.get("systemIds", [])
+            for src_sid in src_ids:
+                for tgt_sid in tgt_ids:
+                    if src_sid in nodes and tgt_sid in nodes and src_sid != tgt_sid:
+                        arrows.append({"from": src_sid, "to": tgt_sid, "dashed": False, "label": step.get("name", "")})
+
+    # Add synthetic Clients → first main flow system arrow
+    if has_actors and main_flow_ordered:
+        first_main_sid = main_flow_ordered[0]
+        # If first system is an auth-type placed in AUTH_Y, arrow to it
+        # Otherwise arrow to the first main flow system on MAIN_Y
+        arrows.append({"from": "clients", "to": first_main_sid, "dashed": False, "label": ""})
+
+    # Deduplicate arrows
+    seen_pairs: set[tuple[str, str]] = set()
+    unique_arrows = []
+    for a in arrows:
+        key = (a["from"], a["to"])
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            unique_arrows.append(a)
+    arrows = unique_arrows
+
+    # ── Step 9b: Add dashed support arrows from non-main-flow to main flow ──
+    # Generic: link auxiliary systems to their related main-flow systems
+    # based on shared capabilities and flow step associations
+    for s in systems:
+        sid = s["id"]
+        if sid in main_sys_positions:
+            continue  # skip main flow systems
+        if sid not in nodes:
+            continue
+        # Find main flow systems sharing at least one capability
+        linked = False
+        for cap_id in s.get("capabilityIds", []):
+            for main_sid in main_flow_ordered:
+                ms = systems_by_id.get(main_sid)
+                if ms and cap_id in ms.get("capabilityIds", []):
+                    arrows.append({"from": sid, "to": main_sid, "dashed": True, "label": ""})
+                    linked = True
+        if not linked:
+            # Find via flow step co-participation
+            for step in flow_steps:
+                if sid in step.get("systemIds", []):
+                    for main_sid in step.get("systemIds", []):
+                        if main_sid in main_sys_positions and main_sid != sid:
+                            arrows.append({"from": sid, "to": main_sid, "dashed": True, "label": ""})
+                            linked = True
+                            break
+                if linked:
+                    break
+        if not linked:
+            # Last resort: connect to nearest main flow system
+            n = nodes[sid]
+            best_sid = min(main_flow_ordered, key=lambda ms: abs(nodes[ms]["x"] - n["x"])) if main_flow_ordered else None
+            if best_sid and best_sid in nodes:
+                arrows.append({"from": sid, "to": best_sid, "dashed": True, "label": ""})
+
+    # ── Step 9: Calculate canvas size ──
+    if nodes:
+        max_x = max(n["x"] + n["w"] for n in nodes.values())
+        max_y = max(n["y"] + n["h"] for n in nodes.values())
+        min_y = min(n["y"] for n in nodes.values())
+    else:
+        max_x, max_y, min_y = 400, 300, 100
+    canvas_w = max_x + 120  # extra padding
+    canvas_h = max_y - min_y + 140  # extra bottom padding for legend + footer
+
+    return {
+        "nodes": nodes,
+        "arrows": arrows,
+        "width": canvas_w,
+        "height": canvas_h,
+        "min_y": min_y,
+    }
+
+
+def _find_related_column_idx(
+    sid: str,
+    systems_by_id: dict[str, dict],
+    steps_by_id: dict[str, dict],
+    main_flow_ordered: list[str],
+    main_sys_positions: dict[str, int],
+) -> int:
+    """Find the main flow column index most related to a supporting system."""
+    # Find which flow steps reference this system
+    for step in steps_by_id.values():
+        if sid in step.get("systemIds", []):
+            # Check next steps for main flow systems
+            for next_id in step.get("nextStepIds", []):
+                next_step = steps_by_id.get(next_id)
+                if next_step:
+                    for main_sid in next_step.get("systemIds", []):
+                        if main_sid in main_sys_positions:
+                            return main_sys_positions[main_sid]
+            # Check previous steps
+            for other_step in steps_by_id.values():
+                for next_id in other_step.get("nextStepIds", []):
+                    if next_id in steps_by_id and sid in steps_by_id[next_id].get("systemIds", []):
+                        for main_sid in other_step.get("systemIds", []):
+                            if main_sid in main_sys_positions:
+                                return main_sys_positions[main_sid]
+            # If in same step as main flow systems, use those
+            for main_sid in step.get("systemIds", []):
+                if main_sid in main_sys_positions:
+                    return main_sys_positions[main_sid]
+    # Fallback: check which capabilities this system supports,
+    # then find flow steps using those capabilities
+    sys_caps = set(systems_by_id[sid].get("capabilityIds", []))
+    if sys_caps:
+        for step in steps_by_id.values():
+            if sys_caps & set(step.get("capabilityIds", [])):
+                for main_sid in step.get("systemIds", []):
+                    if main_sid in main_sys_positions:
+                        return main_sys_positions[main_sid]
+    # Default to column 2 (middle)
+    return 2
+
+
+def _check_layout_quality(layout: dict[str, Any], blueprint: dict[str, Any]) -> list[str]:
+    """Run quality checks on the layout and return a list of issues."""
+    issues: list[str] = []
+    nodes = layout["nodes"]
+    systems = blueprint.get("library", {}).get("systems", [])
+    actors = blueprint.get("library", {}).get("actors", [])
+
+    # 1. All systems have nodes
+    sys_ids = {s["id"] for s in systems}
+    node_ids = set(nodes.keys())
+    missing = sys_ids - node_ids
+    if missing:
+        issues.append(f"Missing nodes for systems: {', '.join(missing)}")
+
+    # 1b. Entry node: if blueprint has actors, should have an entry node
+    if actors and not any("client" in sid.lower() or "entry" in sid.lower() for sid in node_ids):
+        issues.append("No entry node despite having actors in blueprint")
+
+    # 2. Overlap check — include vertical proximity
+    node_list = list(nodes.items())
+    for i, (sid_a, a) in enumerate(node_list):
+        for sid_b, b in node_list[i + 1:]:
+            a_right = a["x"] + a["w"]
+            a_bottom = a["y"] + a["h"]
+            b_right = b["x"] + b["w"]
+            b_bottom = b["y"] + b["h"]
+            # Check if rectangles overlap or are too close (< 10px gap)
+            h_overlap = not (a_right + 10 < b["x"] or b_right + 10 < a["x"])
+            v_overlap = not (a_bottom + 10 < b["y"] or b_bottom + 10 < a["y"])
+            if h_overlap and v_overlap:
+                issues.append(f"Nodes too close: {sid_a} and {sid_b}")
+
+    # 3. Text overflow check
+    for sid, n in nodes.items():
+        label = n.get("label", "")
+        # Estimate: CJK ~8px, ASCII ~6px
+        label_px = sum(8 if ord(c) > 127 else 6 for c in label)
+        if label_px > n["w"] * 0.85:
+            issues.append(f"Label tight: {sid} '{label}' (~{label_px}px) in width={n['w']}px")
+        for i_sub, sub in enumerate(n.get("subtitles", [])):
+            sub_px = sum(8 if ord(c) > 127 else 5 for c in sub)
+            if sub_px > n["w"] * 0.9:
+                issues.append(f"Subtitle tight: {sid} line {i_sub} '{sub}' (~{sub_px}px) in width={n['w']}px")
+
+    # 4. Title coverage check
+    title_bottom = 62
+    for sid, n in nodes.items():
+        if n["y"] < title_bottom + 10:
+            issues.append(f"Node {sid} near title: y={n['y']} < {title_bottom + 10}")
+
+    # 5. Canvas size
+    if layout["width"] < 1000:
+        issues.append(f"Canvas too narrow: {layout['width']}px < 1000px")
+
+    # 6. Arrow completeness
+    flow_steps = blueprint.get("library", {}).get("flowSteps", [])
+    expected = 0
+    actual_pairs = {(a["from"], a["to"]) for a in layout["arrows"]}
+    steps_by_id = {s["id"]: s for s in flow_steps}
+    for step in flow_steps:
+        for next_id in step.get("nextStepIds", []):
+            src_ids = step.get("systemIds", [])
+            tgt_ids = steps_by_id.get(next_id, {}).get("systemIds", [])
+            for sid in src_ids:
+                for tid in tgt_ids:
+                    if sid != tid:
+                        expected += 1
+    actual_count = len(actual_pairs)
+    if actual_count < expected:
+        issues.append(f"Missing arrows: {actual_count} actual vs {expected} expected")
+
+    # 7. Same-column stacking check — only flag if nodes in same column are on same row
+    col_stacks: dict[int, list[tuple[str, int, int]]] = {}
+    for sid, n in nodes.items():
+        col_stacks.setdefault(n["x"], []).append((sid, n["y"], n["h"]))
+    for col_x, stack in col_stacks.items():
+        stack.sort(key=lambda x: x[1])  # sort by y
+        for i, (sid_a, y_a, h_a) in enumerate(stack):
+            for sid_b, y_b, h_b in stack[i + 1:]:
+                # If vertically adjacent nodes are < 30px apart, flag it
+                gap = y_b - (y_a + h_a)
+                if 0 < gap < 8:
+                    issues.append(f"Column {col_x}: {sid_a} and {sid_b} overlap (gap={gap}px)")
+
+    return issues
+
+
 def _render_free_flow_svg(
     layout: dict[str, Any],
     title: str,
     subtitle: str,
-    colors: dict,
-    theme: str = "light",
-    view_type: str = "capability_map",
+    theme: str = "dark",
+    blueprint: dict[str, Any] | None = None,
 ) -> str:
-    """Render a free-flow layout dict into an SVG string.
-
-    Handles group backgrounds, node rendering, and arrow routing.
-    """
-    w = layout["width"]
-    h = layout["height"]
+    """Render a free-flow layout dict into an SVG string."""
+    if blueprint is None:
+        blueprint = {}
+    colors = _resolve_theme(theme)
     nodes = layout["nodes"]
     arrows = layout["arrows"]
-    groups = layout["groups"]
-
-    card_h_by_kind = {
-        "capability": 52,
-        "system": NODE_H,
-        "actor": NODE_H,
-        "flowStep": 40,
-    }
+    w, h = layout["width"], layout["height"]
+    min_y = layout.get("min_y", 0)
+    y_offset = -min_y + 95  # shift everything down so top nodes clear title (y=62) with padding
 
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" font-family="{FONT}">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+        f'width="{w}" height="{h}" font-family="{FONT}">',
         _svg_defs(colors=colors, theme=theme),
     ]
 
@@ -1105,140 +1353,316 @@ def _render_free_flow_svg(
     # Title
     parts.append(_title_svg(title, subtitle, w, colors=colors))
 
-    # Group backgrounds (z-order: behind nodes)
-    for g in groups:
-        label = g["label"]
-        gx, gy, gw, gh = g["x"], g["y"] + CANVAS_PAD_TOP, g["w"], g["h"]
-        stroke = colors.get("cap_stroke", "#0B6E6E")
-        fill = colors.get("cap_fill", "#E8F5F5")
+    # Detect boundary box for non-external systems
+    inner_nodes = [n for n in nodes.values() if n.get("category") != "external"]
+    region_rect_idx = None
+    if inner_nodes:
+        min_x = min(n["x"] for n in inner_nodes) - 40
+        region_min_y = max(min(n["y"] for n in inner_nodes) - 30 + y_offset, 72)
+        max_x = max(n["x"] + n["w"] for n in inner_nodes) + 40
+        region_max_y = max(n["y"] + n["h"] for n in inner_nodes) + 60 + y_offset
+        region_rect_idx = len(parts)
         parts.append(
-            f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" '
-            f'rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1" opacity="0.3"/>'
+            f'<rect x="{min_x}" y="{region_min_y}" width="{max_x-min_x}" height="{region_max_y-region_min_y}" '
+            f'rx="16" fill="none" stroke="#F59E0B" stroke-width="1.5" '
+            f'stroke-dasharray="8,4" opacity="0.4"/>'
         )
+        # Generic region label
+        region_label = "系统边界"
         parts.append(
-            f'<text x="{gx + gw / 2}" y="{gy + 18}" '
-            f'text-anchor="middle" font-size="11" fill="{stroke}" '
-            f'font-weight="600">{_esc(label)}</text>'
+            f'<text x="{min_x+20}" y="{max(region_min_y - 10, 85)}" font-size="12" '
+            f'fill="#F59E0B" font-weight="600">{region_label}</text>'
         )
 
     # Arrows
     arrow_labels: list[tuple[int, int, str]] = []
-    for arrow in arrows:
+
+    # ── Pre-compute anti-overlap: spread attachment points for converging arrows ──
+    incoming_by_target: dict[str, list[int]] = {}  # target_id → [arrow indices]
+    for ai, arrow in enumerate(arrows):
+        tgt_id = arrow["to"]
+        incoming_by_target.setdefault(tgt_id, []).append(ai)
+
+    # For each target with multiple incoming arrows:
+    #  1. Spread attachment x-positions across the node edge
+    #  2. Stagger mid_y so horizontal segments don't overlap
+    SPREAD_GAP = 14  # pixels between attachment points
+    MID_Y_STEP = 10  # pixels between staggered horizontal levels
+    target_attach_x: dict[tuple[str, int], int] = {}  # (target_id, arrow_index) → x
+    target_mid_y_offset: dict[tuple[str, int], int] = {}  # (target_id, arrow_index) → y offset
+    for tgt_id, arrow_indices in incoming_by_target.items():
+        n = len(arrow_indices)
+        tgt = nodes.get(tgt_id)
+        if not tgt or n <= 1:
+            for ai in arrow_indices:
+                target_attach_x[(tgt_id, ai)] = tgt["x"] + tgt["w"] // 2 if tgt else 0
+                target_mid_y_offset[(tgt_id, ai)] = 0
+        else:
+            # Sort by source x so leftmost arrow gets lowest mid_y
+            sorted_indices = sorted(arrow_indices, key=lambda ai: nodes.get(arrows[ai]["from"], {}).get("x", 0))
+            cx = tgt["x"] + tgt["w"] // 2
+            total_spread = (n - 1) * SPREAD_GAP
+            start_x = cx - total_spread // 2
+            for i, ai in enumerate(sorted_indices):
+                target_attach_x[(tgt_id, ai)] = start_x + i * SPREAD_GAP
+                target_mid_y_offset[(tgt_id, ai)] = int((i - (n - 1) / 2) * MID_Y_STEP)
+
+    for ai, arrow in enumerate(arrows):
         src = nodes.get(arrow["from"])
         tgt = nodes.get(arrow["to"])
         if not src or not tgt:
             continue
-        sx = src["x"] + NODE_W // 2
-        sy = src["y"] + NODE_H
-        tx = tgt["x"] + NODE_W // 2
-        ty = tgt["y"]
-        parts.append(
-            _arrow_line(sx, sy, tx, ty,
-                        dashed=arrow.get("dashed", False), colors=colors)
-        )
-        if arrow.get("label"):
-            arrow_labels.append(((sx + tx) // 2, (sy + ty) // 2, arrow["label"]))
+
+        same_col = abs(src["x"] - tgt["x"]) < 50
+        same_row = abs(src["y"] - tgt["y"]) < 80  # 增大阈值，同行节点用侧边直连
+
+        # Use spread x for target attachment if available
+        spread_tx = target_attach_x.get((arrow["to"], ai), tgt["x"] + tgt["w"] // 2)
+
+        # If spread shifts the target x, it's no longer a simple same_col vertical
+        truly_vertical = same_col and abs(spread_tx - (src["x"] + src["w"] // 2)) < 8
+
+        if truly_vertical:
+            # Vertical: bottom of upper node → top of lower node
+            # 强制对齐 x 坐标，避免轻微倾斜
+            center_x = (src["x"] + src["w"] // 2 + spread_tx) // 2
+            if src["y"] < tgt["y"]:
+                sx = center_x
+                sy = src["y"] + src["h"] + y_offset
+                tx = center_x
+                ty = tgt["y"] + y_offset
+            else:
+                sx = center_x
+                sy = src["y"] + y_offset
+                tx = center_x
+                ty = tgt["y"] + tgt["h"] + y_offset
+            if arrow.get("dashed"):
+                parts.append(f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5" marker-end="url(#arrow-dashed)"/>')
+            else:
+                parts.append(_render_arrow_line(sx, sy, tx, ty, arrow, colors))
+            if arrow.get("label"):
+                arrow_labels.append(((sx + tx) // 2, (sy + ty) // 2, arrow["label"]))
+        elif same_row:
+            # Horizontal: source right edge → target left edge
+            # 使用相同的 y 坐标，确保完全水平（不因节点高度差异产生斜线）
+            avg_h = (src["h"] + tgt["h"]) // 2
+            sy = src["y"] + avg_h // 2 + y_offset
+            sx = src["x"] + src["w"]
+            tx = tgt["x"]
+            ty = sy  # 强制水平
+            parts.append(_render_arrow_line(sx, sy, tx, ty, arrow, colors))
+            if arrow.get("label"):
+                arrow_labels.append(((sx + tx) // 2, sy, arrow["label"]))
+        else:
+            # Cross-row: elbow path routing
+            if src["y"] > tgt["y"]:
+                sx = src["x"] + src["w"] // 2
+                sy = src["y"] + y_offset
+                tx = spread_tx
+                ty = tgt["y"] + tgt["h"] + y_offset
+            else:
+                sx = src["x"] + src["w"] // 2
+                sy = src["y"] + src["h"] + y_offset
+                tx = spread_tx
+                ty = tgt["y"] + y_offset
+
+            # Stagger mid_y so converging arrows have separate horizontal levels
+            mid_y_offset = target_mid_y_offset.get((arrow["to"], ai), 0)
+            # 基础 mid_y：在起点和终点之外，避免穿过节点
+            if src["y"] < tgt["y"]:
+                # 起点在上方，终点在下方 → mid_y 在终点下方
+                base_mid_y = tgt["y"] + tgt["h"] + y_offset + 40
+            else:
+                # 起点在下方，终点在上方 → mid_y 在起点下方
+                base_mid_y = src["y"] + src["h"] + y_offset + 40
+            mid_y = base_mid_y + mid_y_offset
+
+            # Collision avoidance: 确保 mid_y 不与任何节点边缘粘连
+            # 策略：找最近的"安全"位置（不在任何节点边缘附近）
+            h_min_x = min(sx, tx)
+            h_max_x = max(sx, tx)
+            MIN_GAP = 8  # 最小间距（不能太大，否则两个紧挨节点之间没空间）
+
+            # 收集所有在 x 范围内的节点边缘
+            blocked_ranges = []
+            for nid, nd in nodes.items():
+                if nid == arrow["from"] or nid == arrow["to"]:
+                    continue
+                nd_left = nd["x"]
+                nd_right = nd["x"] + nd["w"]
+                if nd_right > h_min_x and nd_left < h_max_x:
+                    nd_top = nd["y"] + y_offset
+                    nd_bot = nd["y"] + nd["h"] + y_offset
+                    # 节点占据的 y 范围（加安全间距）
+                    blocked_ranges.append((nd_top - MIN_GAP, nd_bot + MIN_GAP))
+
+            # 检查 mid_y 是否在 blocked 范围内
+            for blocked_top, blocked_bot in blocked_ranges:
+                if blocked_top <= mid_y <= blocked_bot:
+                    # 尝试向上或向下推到最近的 block 边缘
+                    candidates = []
+                    if blocked_top > max(sy, ty) + MIN_GAP or blocked_top < min(sy, ty) - MIN_GAP:
+                        candidates.append(blocked_top)
+                    candidates.append(blocked_bot)
+                    # 选择距离当前 mid_y 最近的候选位置
+                    if candidates:
+                        mid_y = min(candidates, key=lambda c: abs(c - mid_y))
+                    break
+
+            if arrow.get("dashed"):
+                style = f'stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5" fill="none"'
+                marker = "arrow-dashed"
+            else:
+                style = f'stroke="{colors["arrow"]}" stroke-width="1.5" fill="none"'
+                marker = "arrow-solid"
+
+            if abs(sx - tx) < 8:
+                parts.append(f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" {style} marker-end="url(#{marker})"/>')
+            else:
+                path_d = f"M {sx} {sy} L {sx} {mid_y} L {tx} {mid_y} L {tx} {ty}"
+                parts.append(f'<path d="{path_d}" {style} marker-end="url(#{marker})"/>')
+
+            if arrow.get("label"):
+                arrow_labels.append((max(sx, tx) + 4, mid_y, arrow["label"]))
     for mx, my, label in arrow_labels:
         parts.append(_arrow_label(mx, my, label, colors=colors))
 
-    # Nodes
+    # Update region rect to contain all arrow paths
+    if region_rect_idx is not None:
+        max_arrow_y = 0
+        for ai, arrow in enumerate(arrows):
+            src = nodes.get(arrow["from"])
+            tgt = nodes.get(arrow["to"])
+            if not src or not tgt:
+                continue
+            if abs(src["y"] - tgt["y"]) < 80:
+                continue  # same_row, no elbow
+            if src["y"] > tgt["y"]:
+                mid_y_base = src["y"] + src["h"] + y_offset + 40
+            else:
+                mid_y_base = tgt["y"] + tgt["h"] + y_offset + 40
+            mid_y_off = target_mid_y_offset.get((arrow["to"], ai), 0)
+            max_arrow_y = max(max_arrow_y, mid_y_base + mid_y_off + 10)
+        old_rect = parts[region_rect_idx]
+        m = _re.search(r'y="(\d+)" width="(\d+)" height="(\d+)"', old_rect)
+        if m and max_arrow_y > 0:
+            old_y = int(m.group(1))
+            old_h = int(m.group(3))
+            new_bottom = max(old_y + old_h, max_arrow_y)
+            new_h = new_bottom - old_y
+            parts[region_rect_idx] = old_rect.replace(f'height="{old_h}"', f'height="{new_h}"')
+
+        # Extend SVG canvas if region rect exceeds it
+        if max_arrow_y + 30 > h:
+            h = max_arrow_y + 30
+            parts[0] = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" font-family="{FONT}">'
+
+
+
+
+    # Nodes with semantic colors
     for nid, n in nodes.items():
-        kind = n["kind"]
-        ch = card_h_by_kind.get(kind, NODE_H)
+        cat = n.get("category", "external")
+        fill, stroke = _resolve_system_colors(cat, theme)
+        rx = 8
+        ny = n["y"] + y_offset
+        parts.append(f'<g class="node" id="{nid}">')
+        parts.append(f'<rect x="{n["x"]}" y="{ny}" width="{n["w"]}" height="{n["h"]}" '
+                     f'rx="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>')
+        # Label
+        subs = n.get("subtitles", [])
+        label_y = ny + n["h"] // 2 - (len(subs) + 1) * 7
         parts.append(
-            _node_svg(nid, n["label"], n["x"], n["y"], kind, colors=colors)
+            f'<text x="{n["x"]+n["w"]//2}" y="{label_y+10}" '
+            f'text-anchor="middle" font-size="14" fill="{colors["text_main"]}" '
+            f'font-weight="600">{_esc(n["label"])}</text>'
         )
+        for i, sub in enumerate(subs):
+            c = stroke if i == len(subs) - 1 else colors["text_sub"]
+            parts.append(
+                f'<text x="{n["x"]+n["w"]//2}" y="{label_y+24+i*14}" '
+                f'text-anchor="middle" font-size="10" fill="{c}">{_esc(sub)}</text>'
+            )
+        parts.append('</g>')
+
+
+    # Legend
+    # Legend — vertical layout
+    cat_samples = [
+        ("backend", "计算层"),
+        ("database", "数据层"),
+        ("cloud", "网络/云服务"),
+    ]
+    ROW_H = 18
+    legend_w = 160
+    # header(20) + 3 swatches(18*3) + gap(6) + 2 arrows(18*2) + padding(10) = 110
+    legend_h = 20 + len(cat_samples) * ROW_H + 6 + 2 * ROW_H + 10
+    legend_x, legend_y = 40, h - legend_h - 12
+
+    legend_parts = [
+        f'<g class="legend" transform="translate({legend_x}, {legend_y})">',
+        f'<rect x="0" y="0" width="{legend_w}" height="{legend_h}" '
+        f'rx="6" fill="{colors["canvas"]}" stroke="{colors["border"]}" stroke-width="1" opacity="0.95"/>',
+        f'<text x="12" y="16" font-size="11" fill="{colors["text_main"]}" '
+        f'font-weight="600" letter-spacing="0.3">图 例</text>',
+    ]
+    # Color swatches (vertical stack)
+    for ci, (cat, label) in enumerate(cat_samples):
+        fill, stroke = _resolve_system_colors(cat, theme)
+        if not fill:
+            fill, stroke = colors["sys_fill"], colors["sys_stroke"]
+        cy = 28 + ci * ROW_H
+        legend_parts.append(
+            f'<rect x="12" y="{cy}" width="12" height="12" rx="3" '
+            f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+            f'<text x="30" y="{cy+10}" font-size="9" fill="{colors["text_sub"]}">{label}</text>'
+        )
+    # Arrow styles
+    arrow_base_y = 28 + len(cat_samples) * ROW_H + 6
+    legend_parts.append(
+        f'<line x1="12" y1="{arrow_base_y+6}" x2="30" y2="{arrow_base_y+6}" '
+        f'stroke="{colors["arrow"]}" stroke-width="1.5"/>'
+        f'<text x="38" y="{arrow_base_y+10}" font-size="9" fill="{colors["text_sub"]}">数据流</text>'
+    )
+    legend_parts.append(
+        f'<line x1="12" y1="{arrow_base_y+ROW_H+6}" x2="30" y2="{arrow_base_y+ROW_H+6}" '
+        f'stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5" '
+        f'marker-end="url(#arrow-dashed)"/>'
+        f'<text x="38" y="{arrow_base_y+ROW_H+10}" font-size="9" fill="{colors["text_sub"]}">支撑 / 依赖</text>'
+    )
+    legend_parts.append('</g>')
+    parts.extend(legend_parts)
+
+    # Footer
+    parts.append(
+        f'<text x="{w//2}" y="{h-15}" text-anchor="middle" '
+        f'font-size="10" fill="{colors["text_sub"]}" letter-spacing="0.5">'
+        f'{_esc(title)} • 自由流布局</text>'
+    )
 
     parts.append("</svg>")
     return "\n".join(parts)
 
 
-# ─── Auto-export: content router + free flow layout ──────────────
-def export_svg_auto(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
-    """Export using content routing and free-flow layout.
+def export_svg_auto(blueprint: dict[str, Any], target: Path, theme: str = "dark") -> None:
+    """Export using free-flow L→R data flow layout.
 
-    Automatically decides which views to generate based on blueprint content,
-    computes free-form positions, and renders all views into a single SVG.
-
-    Args:
-        blueprint: The canonical blueprint JSON.
-        target: Output file path.
-        theme: Color theme — "light" (default) or "dark".
+    This is the default export: positions systems by category in columns
+    (Cloud → Backend → Database) with semantic colors and arrows.
     """
-    colors = _resolve_theme(theme)
-    views = _content_router(blueprint)
-
-    if not views:
-        # Fallback to the classic layout
-        export_svg(blueprint, target, theme=theme)
-        return
-
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry = blueprint.get("meta", {}).get("industry", "")
+    subtitle = f"行业：{industry}" if industry else "架构"
 
-    # If there's only one view, render it directly
-    if len(views) == 1:
-        view = views[0]
-        layout = _layout_free_flow(blueprint, view, colors=colors)
-        subtitle = view["title"]
-        svg_str = _render_free_flow_svg(layout, title, subtitle, colors, theme, view["type"])
-        target.write_text(svg_str, encoding="utf-8")
-        return
-
-    # Multiple views: stack them vertically into a single SVG
-    all_parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" font-family="{FONT}">',
-        _svg_defs(colors=colors, theme=theme),
-    ]
-
-    if theme == "dark":
-        all_parts.append('<rect width="0" height="0" fill="url(#grid)"/>')
-    else:
-        all_parts.append('<rect width="0" height="0" fill="{colors["bg"]}"/>')
-
-    current_y = 0
-    max_w = 0
-
-    for vi, view in enumerate(views):
-        layout = _layout_free_flow(blueprint, view, colors=colors)
-        subtitle = view["title"]
-        view_svg = _render_free_flow_svg(layout, title, subtitle, colors, theme, view["type"])
-
-        # Extract content between <svg> and </svg>
-        content_start = view_svg.find(">") + 1
-        content_end = view_svg.rfind("</svg>")
-        view_content = view_svg[content_start:content_end]
-
-        # Remove the inner svg header/defs from sub-views (keep only first)
-        if vi == 0:
-            all_parts.append(view_content)
-        else:
-            # Skip defs and bg rect, just add the content
-            lines = view_content.split("\n")
-            for line in lines:
-                if "<defs>" in line or "</defs>" in line:
-                    continue
-                if line.strip().startswith("<rect") and ("width=" in line and "height=" in line and "fill=" in line and "url(#grid)" not in line):
-                    # This is likely the bg rect — skip for sub-views
-                    if view_content.count("<rect") > len(view.get("groups", [])) * 2:
-                        continue
-                all_parts.append(line)
-
-        current_y = max(current_y, layout["height"])
-        max_w = max(max_w, layout["width"])
-
-    # Fix SVG dimensions
-    total_h = sum(_layout_free_flow(blueprint, v, colors=colors)["height"] for v in views) + CANVAS_PAD_TOP
-    all_parts[0] = f'<svg xmlns="http://www.w3.org/2000/svg" width="{max_w}" height="{total_h}" font-family="{FONT}">'
-
-    # Fix the bg rect size
-    for i, part in enumerate(all_parts):
-        if '<rect width="0"' in part:
-            all_parts[i] = f'<rect width="{max_w}" height="{total_h}" fill="{colors["bg"]}"/>'
-            break
-
-    all_parts.append("</svg>")
-    target.write_text("\n".join(all_parts), encoding="utf-8")
+    layout = _layout_free_flow(blueprint)
+    # Run quality validation
+    issues = _check_layout_quality(layout, blueprint)
+    if issues:
+        print(f"  Layout quality issues ({len(issues)}):")
+        for iss in issues:
+            print(f"    - {iss}")
+    svg = _render_free_flow_svg(layout, title, subtitle, theme=theme, blueprint=blueprint)
+    target.write_text(svg, encoding="utf-8")
 
 
 # ─── Export: Product Tree / Genealogy ────────────────────────────
@@ -1677,7 +2101,7 @@ def export_capability_map_svg(blueprint: dict[str, Any], target: Path, theme: st
     parts: list[str] = []
 
     # Title block
-    subtitle = f"Industry: {industry}" if industry else "Capability Map"
+    subtitle = f"行业：{industry}" if industry else "能力地图"
     parts.extend([
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w}" height="0" '
         f'font-family="{FONT}">',
@@ -1816,7 +2240,7 @@ def export_swimlane_flow_svg(blueprint: dict[str, Any], target: Path, theme: str
 
     parts: list[str] = []
 
-    subtitle = f"Industry: {industry}" if industry else "Swimlane Flow"
+    subtitle = f"行业：{industry}" if industry else "泳道流程"
     parts.extend([
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w}" height="0" '
         f'font-family="{FONT}">',

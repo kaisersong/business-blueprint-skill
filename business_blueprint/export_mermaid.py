@@ -4,6 +4,17 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
+# Watermark — injected as Mermaid comment at top of file
+_WATERMARK_COMMENT = "%% business-blueprint-skill v{version}"
+
+
+def _get_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("business-blueprint-skill")
+    except Exception:
+        return "0.1.0"
+
 
 def export_mermaid(blueprint: dict[str, Any], target: Path) -> None:
     """Export blueprint as Mermaid diagram with smart grid layout.
@@ -88,5 +99,5 @@ def export_mermaid(blueprint: dict[str, Any], target: Path) -> None:
         if src and tgt and isinstance(src, str) and isinstance(tgt, str) and src.strip() and tgt.strip():
             lines.append(f'    {src} -- "{label}" --> {tgt}')
 
-    content = "\n".join(lines) + "\n"
+    content = _WATERMARK_COMMENT.format(version=_get_version()) + "\n" + "\n".join(lines) + "\n"
     target.write_text(content, encoding="utf-8")

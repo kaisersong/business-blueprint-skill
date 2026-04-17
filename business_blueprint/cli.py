@@ -21,17 +21,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plan", help="Generate only the canonical blueprint JSON.")
     parser.add_argument(
         "--generate",
-        help="Generate the canonical blueprint JSON and viewer.",
+        help="Path to blueprint JSON. Generates free-flow HTML viewer.",
     )
     parser.add_argument("--edit", help="Refresh the static viewer for an existing blueprint.")
-    parser.add_argument("--export", help="Export SVG, draw.io, and Excalidraw artifacts.")
-    parser.add_argument("--export-auto", help="Export SVG using content routing + free-flow layout.")
+    parser.add_argument("--export", help="Export diagram artifacts. Default: free-flow SVG + HTML viewer.")
+    parser.add_argument("--export-auto", help="Alias for --export (free-flow SVG + HTML viewer).")
     parser.add_argument("--html", help="Generate self-contained HTML viewer with inline SVG.")
     parser.add_argument("--validate", help="Validate a blueprint and print JSON results.")
     parser.add_argument("--from", dest="from_path", help="Source text or file path.")
-    parser.add_argument("--industry", default="common", help="Template pack name.")
-    parser.add_argument("--theme", default="light", choices=["light", "dark"],
-                        help="Color theme for HTML output (default: light).")
+    parser.add_argument("--format", dest="export_format", default="svg",
+                        help="Export format: svg/auto (default: free-flow SVG+HTML), drawio, excalidraw, mermaid, all.")
+    _INDUSTRIES = ["common", "finance", "manufacturing", "retail"]
+    parser.add_argument("--industry", default="common", choices=_INDUSTRIES,
+                        help=f"Template pack name ({', '.join(_INDUSTRIES)}).")
+    parser.add_argument("--theme", default="dark", choices=["light", "dark"],
+                        help="Color theme for HTML output (default: dark).")
     return parser
 
 
@@ -77,22 +81,40 @@ def main() -> int:
         blueprint = load_json(blueprint_path)
         export_dir = blueprint_path.with_name("solution.exports")
         export_dir.mkdir(parents=True, exist_ok=True)
-        export_svg(blueprint, export_dir / "solution.svg", theme=args.theme)
-        export_capability_map_svg(blueprint, export_dir / "capability-map.svg", theme=args.theme)
-        export_swimlane_flow_svg(blueprint, export_dir / "swimlane-flow.svg", theme=args.theme)
-        export_product_tree_svg(blueprint, export_dir / "product-tree.svg", theme=args.theme)
-        export_matrix_svg(blueprint, export_dir / "capability-matrix.svg", theme=args.theme)
-        export_drawio(blueprint, export_dir / "solution.drawio")
-        export_excalidraw(blueprint, export_dir / "solution.excalidraw")
-        export_mermaid(blueprint, export_dir / "solution.mermaid.md")
+        html_path = blueprint_path.parent / f"{blueprint_path.stem}.html"
+        fmt = args.export_format or "svg"
+        if fmt == "svg":
+            export_svg_auto(blueprint, export_dir / "solution.svg", theme=args.theme)
+            export_html_viewer(blueprint, html_path, theme=args.theme)
+        elif fmt == "drawio":
+            export_drawio(blueprint, export_dir / "solution.drawio")
+        elif fmt == "excalidraw":
+            export_excalidraw(blueprint, export_dir / "solution.excalidraw")
+        elif fmt == "mermaid":
+            export_mermaid(blueprint, export_dir / "solution.mermaid.md")
+        elif fmt == "auto":
+            export_svg_auto(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
+            export_html_viewer(blueprint, html_path, theme=args.theme)
+        elif fmt == "all":
+            export_svg_auto(blueprint, export_dir / "solution.svg", theme=args.theme)
+            export_html_viewer(blueprint, html_path, theme=args.theme)
+            export_drawio(blueprint, export_dir / "solution.drawio")
+            export_excalidraw(blueprint, export_dir / "solution.excalidraw")
+            export_mermaid(blueprint, export_dir / "solution.mermaid.md")
+        else:
+            print(f"Unknown format: {fmt}. Supported: svg, drawio, excalidraw, mermaid, auto, all")
+            return 1
         return 0
 
     if args.export_auto:
         blueprint_path = Path(args.export_auto)
         blueprint = load_json(blueprint_path)
-        export_dir = blueprint_path.with_name("solution.exports")
+        stem = blueprint_path.stem
+        export_dir = blueprint_path.parent / f"{stem}.exports"
         export_dir.mkdir(parents=True, exist_ok=True)
-        export_svg_auto(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
+        html_path = blueprint_path.parent / f"{stem}.html"
+        export_svg(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
+        export_html_viewer(blueprint, html_path, theme=args.theme)
         return 0
 
     if args.html:

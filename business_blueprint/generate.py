@@ -251,7 +251,15 @@ SYSTEM_RULES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
 )
 
 
+_VALID_INDUSTRIES = frozenset({"common", "finance", "manufacturing", "retail"})
+
+
 def load_seed(repo_root: Path, industry: str) -> dict[str, Any]:
+    if industry not in _VALID_INDUSTRIES:
+        raise ValueError(
+            f"Unknown industry '{industry}'. "
+            f"Valid choices: {sorted(_VALID_INDUSTRIES)}"
+        )
     seed_path = repo_root / "business_blueprint" / "templates" / industry / "seed.json"
     return load_json(seed_path)
 
