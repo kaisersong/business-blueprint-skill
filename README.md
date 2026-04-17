@@ -244,6 +244,8 @@ for rel in bp["relations"]:
 
 ## Version History
 
+**v0.6.1** — Layout engine genericization: remove all hardcoded company/product names (AWS service mappings, Kingdee product IDs, brand text) from layout and rendering code; `_categorize_system()` now uses language-agnostic keyword matching (Chinese + English); `_layout_layered()` assigns distinct colors per layer instead of category keyword lookup; dark theme node colors increased contrast (brighter fills, bolder strokes); legend rendered behind arrows and nodes (z-order fix) so overlaps never obscure content; product tree and capability matrix auto-derive segments from blueprint data instead of hardcoded IDs.
+
 **v0.6.0** — Free-flow layout engine overhaul: arrow routing with cross-row elbow paths and mid_y collision avoidance; dark theme as default; all user-facing labels in Chinese (legend, footer, summary cards); arrowheads shrunk (8×6px, stroke-width 1.5) for cleaner look; region boundary box and SVG canvas dynamically expand to contain arrow paths; rendering z-order fixed (arrows behind nodes); `--html` flag for standalone viewer; `--format` and `--theme` CLI flags; description section from blueprint context; download SVG button.
 
 **v0.5.0** — Content router & free-flow layout engine: `_content_router()` auto-selects views (architecture, capability map, swimlane, process chain) based on blueprint content; `_layout_free_flow()` computes free-form positions with domain grouping and auto-wrapping; `export_svg_auto()` combines routing + layout; `--export-auto` CLI flag; HTML viewer now dynamically shows tabs only for available views.

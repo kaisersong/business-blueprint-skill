@@ -80,31 +80,31 @@ def _resolve_theme(name: str = "light") -> dict:
 SYSTEM_CATEGORY_COLORS: dict[str, dict[str, dict[str, str]]] = {
     "frontend": {
         "light": {"fill": "#ECFEFF", "stroke": "#0891B2"},
-        "dark": {"fill": "#0C1929", "stroke": "#5B8DB8"},
+        "dark": {"fill": "#0E2A3D", "stroke": "#22D3EE"},
     },
     "backend": {
         "light": {"fill": "#ECFDF5", "stroke": "#10B981"},
-        "dark": {"fill": "#0C1F1E", "stroke": "#5EA89A"},
+        "dark": {"fill": "#0E2E1F", "stroke": "#34D399"},
     },
     "database": {
         "light": {"fill": "#F5F3FF", "stroke": "#8B5CF6"},
-        "dark": {"fill": "#1A1530", "stroke": "#8B82B0"},
+        "dark": {"fill": "#1E1535", "stroke": "#A78BFA"},
     },
     "message_bus": {
         "light": {"fill": "#F0FDF4", "stroke": "#22C55E"},
-        "dark": {"fill": "#111F14", "stroke": "#6DAA7A"},
+        "dark": {"fill": "#0F2518", "stroke": "#4ADE80"},
     },
     "cloud": {
         "light": {"fill": "#FFFBEB", "stroke": "#F59E0B"},
-        "dark": {"fill": "#1F1A0F", "stroke": "#A09060"},
+        "dark": {"fill": "#2A2010", "stroke": "#FBBF24"},
     },
     "security": {
         "light": {"fill": "#FFF1F2", "stroke": "#F43F5E"},
-        "dark": {"fill": "#1F1015", "stroke": "#B07878"},
+        "dark": {"fill": "#2A1018", "stroke": "#FB7185"},
     },
     "external": {
         "light": {"fill": "#F8FAFC", "stroke": "#64748B"},
-        "dark": {"fill": "#141B24", "stroke": "#8090A0"},
+        "dark": {"fill": "#1A2030", "stroke": "#94A3B8"},
     },
 }
 
@@ -779,39 +779,47 @@ _FREE_FLOW_ROWS = {
 
 
 def _categorize_system(sys_obj: dict) -> str:
-    """Determine system category from properties or aliases."""
+    """Determine system category from properties, aliases, or name heuristics."""
     cat = sys_obj.get("category", "").lower()
     if cat:
         return cat
+    name = sys_obj.get("name", "").lower()
+    # Generic keyword → category heuristics (language-agnostic)
+    if any(k in name for k in ("gateway", "cdn", "proxy", "load balancer", "ingress")):
+        return "cloud"
+    if any(k in name for k in ("database", "db", "sql", "nosql", "storage", "cache",
+                                "数据库", "缓存", "存储")):
+        return "database"
+    if any(k in name for k in ("auth", "identity", "permission", "rbac", "token", "oauth",
+                                "认证", "权限", "身份")):
+        return "security"
+    if any(k in name for k in ("queue", "event", "message", "bus", "kafka", "mq",
+                                "队列", "消息", "事件")):
+        return "message_bus"
+    if any(k in name for k in ("lambda", "function", "compute", "serverless",
+                                "计算", "函数")):
+        return "backend"
+    if any(k in name for k in ("monitor", "logging", "tracing", "metric", "alarm",
+                                "监控", "日志", "告警")):
+        return "cloud"
+    if any(k in name for k in ("deploy", "infra", "pipeline", "ci/cd", "terraform",
+                                "部署", "基础设施")):
+        return "external"
     props = sys_obj.get("properties", {})
     svc = props.get("service", "").lower()
-    # AWS service → category mapping
-    if svc in ("lambda",):
-        return "backend"
-    if svc in ("apigateway", "cloudfront"):
-        return "cloud"
-    if svc in ("dynamodb", "rds", "s3"):
-        return "database"
-    if svc in ("cognito-idp", "secretsmanager", "kms"):
-        return "security"
-    if svc in ("events", "sqs", "sns"):
-        return "message_bus"
-    if svc in ("cloudwatch", "xray"):
-        return "cloud"  # keep as cloud for coloring, but observability row logic handles placement
-    if svc in ("cloudformation",):
-        return "external"
-    name = sys_obj.get("name", "").lower()
-    if any(k in name for k in ("gateway", "cloudfront")):
-        return "cloud"
-    if any(k in name for k in ("lambda", "function", "compute")):
-        return "backend"
-    if any(k in name for k in ("dynamo", "rds", "database", "storage")):
-        return "database"
-    if any(k in name for k in ("cognito", "secret", "auth")):
-        return "security"
-    if any(k in name for k in ("event", "sqs", "sns", "queue")):
-        return "message_bus"
-    return "external"
+    if svc:
+        # Map known service types to categories
+        _SVC_MAP = {
+            "serverless": "backend", "compute": "backend",
+            "cdn": "cloud", "gateway": "cloud", "proxy": "cloud",
+            "database": "database", "cache": "database",
+            "auth": "security", "iam": "security",
+            "queue": "message_bus", "event": "message_bus",
+        }
+        for key, mapped in _SVC_MAP.items():
+            if key in svc:
+                return mapped
+    return "backend"
 
 
 def _get_subtitle(sys_obj: dict) -> list[str]:
@@ -848,6 +856,167 @@ def _get_subtitle(sys_obj: dict) -> list[str]:
     return truncated[:3] or [""]
 
 
+def _layout_layered(blueprint: dict[str, Any]) -> dict[str, Any]:
+    """Layout systems by layer field into L→R columns.
+
+    When systems have a ``layer`` field, group them into columns (one column per
+    unique layer value).  Layers are ordered by their first appearance in the
+    ``systems`` array.  Relations drive the arrows.
+    """
+    lib = blueprint.get("library", {})
+    systems = lib.get("systems", [])
+    actors = lib.get("actors", [])
+    relations = blueprint.get("relations", [])
+
+    # ── Group systems by layer ──
+    layer_order: list[str] = []
+    layer_systems: dict[str, list[dict]] = {}
+    for s in systems:
+        layer = s.get("layer", "")
+        if not layer:
+            continue
+        if layer not in layer_systems:
+            layer_order.append(layer)
+            layer_systems[layer] = []
+        layer_systems[layer].append(s)
+
+    if not layer_order:
+        # No layers → fall back to free-flow
+        return _layout_free_flow(blueprint)
+
+    # ── Layout constants ──
+    NODE_W = 150
+    NODE_H_BASE = 60
+    NODE_H_FEATURED = 76  # systems with features get taller
+    COL_GAP = 60          # horizontal gap between layer columns
+    ROW_GAP = 20          # vertical gap between nodes in same column
+    PAD_X = 80            # left padding
+    PAD_Y = 140           # top padding (below title + summary)
+    ACTOR_COL_W = 160     # width reserved for actor entry node
+
+    has_actors = bool(actors)
+    col_x_start = PAD_X + (ACTOR_COL_W + COL_GAP) if has_actors else PAD_X
+
+    # ── Layer → category mapping: cycle through distinct categories ──
+    _LAYER_CATEGORIES = ["frontend", "cloud", "backend", "message_bus", "database", "security"]
+    layer_categories = {
+        layer: _LAYER_CATEGORIES[li % len(_LAYER_CATEGORIES)]
+        for li, layer in enumerate(layer_order)
+    }
+
+    # ── Calculate column widths (max node width in each layer) ──
+    col_widths: list[int] = []
+    for layer in layer_order:
+        max_w = 0
+        for s in layer_systems[layer]:
+            label = s.get("name", "")
+            label_px = sum(8 if ord(c) > 127 else 6 for c in label)
+            feats = s.get("features", [])
+            w = max(NODE_W, label_px + 24, 120)
+            if feats:
+                feat_text = " / ".join(feats)
+                feat_px = sum(7 if ord(c) > 127 else 5 for c in feat_text)
+                w = max(w, feat_px + 20)
+                w = min(w, 220)  # cap
+            max_w = max(max_w, w)
+        col_widths.append(max_w)
+
+    # ── Place nodes ──
+    nodes: dict[str, dict] = {}
+
+    # Actor entry node
+    if has_actors:
+        actor_names = [a.get("name", "User") for a in actors]
+        if len(actor_names) > 1:
+            clients_label = " / ".join(actor_names[:2]) + ("..." if len(actor_names) > 2 else "")
+        else:
+            clients_label = actor_names[0]
+        label_px = sum(8 if ord(c) > 127 else 6 for c in clients_label)
+        label_w = min(max(140, label_px + 24), 200)
+        nodes["clients"] = {
+            "x": PAD_X, "y": PAD_Y + 60, "w": label_w, "h": 80,
+            "label": clients_label,
+            "category": "external",
+            "subtitles": [a.get("name", "") for a in actors[:3]],
+            "sys": {"id": "clients", "name": clients_label},
+        }
+
+    # Systems per layer column
+    x_cursor = col_x_start
+    for li, layer in enumerate(layer_order):
+        col_w = col_widths[li]
+        y_cursor = PAD_Y
+        for si, s in enumerate(layer_systems[layer]):
+            sid = s["id"]
+            feats = s.get("features", [])
+            h = NODE_H_FEATURED if feats else NODE_H_BASE
+            # Adjust height for features text
+            if feats:
+                needed = 14 + 8 + min(len(feats), 3) * 13
+                h = max(h, needed)
+
+            nodes[sid] = {
+                "x": x_cursor, "y": y_cursor, "w": col_w, "h": h,
+                "label": s.get("name", sid),
+                "category": layer_categories[layer],
+                "subtitles": feats[:3] if feats else [],
+                "sys": s,
+                "layer": layer,
+            }
+            y_cursor += h + ROW_GAP
+        x_cursor += col_w + COL_GAP
+
+    # ── Build arrows from relations ──
+    arrows: list[dict] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    def _add_arrow(from_id: str, to_id: str, label: str, dashed: bool) -> None:
+        key = (from_id, to_id)
+        if key in seen_pairs:
+            return
+        seen_pairs.add(key)
+        if from_id in nodes and to_id in nodes:
+            arrows.append({"from": from_id, "to": to_id, "dashed": dashed, "label": label})
+
+    for rel in relations:
+        src_id = rel.get("from", "")
+        tgt_id = rel.get("to", "")
+        rel_type = rel.get("type", "data")
+        label = rel.get("label", "")
+        dashed = rel_type in ("support", "uses")
+        _add_arrow(src_id, tgt_id, label, dashed)
+
+    # Actor → first layer systems
+    if has_actors:
+        first_layer = layer_order[0] if layer_order else ""
+        for s in layer_systems.get(first_layer, []):
+            _add_arrow("clients", s["id"], "", False)
+
+    # ── Calculate canvas ──
+    if nodes:
+        max_x = max(n["x"] + n["w"] for n in nodes.values())
+        max_y = max(n["y"] + n["h"] for n in nodes.values())
+        min_y = min(n["y"] for n in nodes.values())
+    else:
+        max_x, max_y, min_y = 400, 300, 100
+
+    canvas_w = max_x + 120
+    canvas_h = max_y - min_y + 160
+
+    return {
+        "nodes": nodes,
+        "arrows": arrows,
+        "width": canvas_w,
+        "height": canvas_h,
+        "min_y": min_y,
+        "layer_order": layer_order,
+        "layer_columns": {
+            layer: col_widths[li]
+            for li, layer in enumerate(layer_order)
+        },
+    }
+
+
 def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
     """Layout systems in L→R data flow columns.
 
@@ -855,11 +1024,11 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
     then scatter supporting systems across different columns above/below
     their related main flow position (not all stacked in one column).
 
-    Row layout (matching manual version):
-      y=120: auth row — Cognito above API Gateway
-      y=230: main flow — Clients → API Gateway → Lambda → DynamoDB
-      y=360: observability — CloudWatch, X-Ray below related systems
-      y=460: infrastructure — SAM/CDK at bottom
+    Row layout:
+      y=130: support row — security, cloud, messaging above main
+      y=230: main flow — primary data flow chain left-to-right
+      y=360: data row — databases and auxiliary systems below main
+      y=460: infra row — deployment and infrastructure at bottom
     """
     lib = blueprint.get("library", {})
     systems = lib.get("systems", [])
@@ -891,27 +1060,15 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
                 main_flow_ordered.append(sid)
                 seen_main.add(sid)
 
-    # ── Step 3: Keyword sets for classification ──
-    OBSERVABILITY_KEYWORDS = ("cloudwatch", "xray", "x-ray", "x_ray", "monitoring", "logging", "tracing", "alarm", "metric")
-    INFRA_KEYWORDS = ("sam", "cdk", "cloudformation", "terraform", "deployment", "infrastructure", "infra")
-    AUTH_KEYWORDS = ("cognito", "auth", "kms", "iam")
-    SECRET_KEYWORDS = ("secret",)
-    ASYNC_KEYWORDS = ("eventbridge", "event-bridge", "sqs", "sns", "async", "queue", "event")
-
     # ── Step 4: Define layout positions ──
-    # Main flow column positions — spread wider (220px gap between nodes)
-    # If blueprint has actors, shift everything right to make room for Clients node
     has_actors = bool(actors)
-    if has_actors:
-        MAIN_COLS = [80, 310, 500, 720, 930, 1150]
-    else:
-        MAIN_COLS = [80, 310, 500, 720, 930, 1150]
+    MAIN_COLS = [80, 310, 500, 720, 930, 1150]
 
-    # Row Y positions
-    AUTH_Y = 130       # auth systems above main (50px gap to main row)
-    MAIN_Y = 230       # main data flow
-    OBSERVABILITY_Y = 360  # observability below main
-    INFRA_Y = 460      # infrastructure at bottom
+    # Row Y positions — generic row semantics (not AWS-specific)
+    ROW_SUPPORT = 130   # supporting systems above main (auth, security, messaging)
+    MAIN_Y = 230        # main data flow
+    ROW_DATA = 360      # data/auxiliary layer below main
+    ROW_INFRA = 460     # infrastructure at bottom
 
     nodes: dict[str, dict] = {}
 
@@ -973,101 +1130,35 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
             n = nodes[sid]
             n["y"] = target_center - n["h"] // 2
 
-    # ── Step 6: Place non-main-flow systems with spread columns ──
-    # Each supporting system gets placed relative to its related main flow column.
-    # Systems of the same type in the same row are spread horizontally.
+    # ── Step 6: Place non-main-flow systems by category ──
+    # Generic category → row mapping (no hardcoded product keywords).
+    # _categorize_system() determines category from system properties.
+    # Row placement: security/cloud/messaging above main, data below, infra at bottom.
     for s in systems:
         sid = s["id"]
         if sid in nodes:
             continue
 
-        name_lower = s.get("name", "").lower()
-        svc = s.get("properties", {}).get("service", "").lower()
-        combined = f"{name_lower} {svc}"
+        cat = _categorize_system(s)
+        rel_col = _find_related_column_idx(sid, systems_by_id, steps_by_id, main_flow_ordered, main_sys_positions)
+        col_x = MAIN_COLS[min(rel_col, len(MAIN_COLS) - 1)]
 
-        if any(k in combined for k in AUTH_KEYWORDS):
-            # Auth: above main flow, aligned to API Gateway column
-            col_idx = main_sys_positions.get("sys-api-gateway", 1)
-            col_x = MAIN_COLS[col_idx] if col_idx < len(MAIN_COLS) else 310
-            nodes[sid] = {
-                "x": col_x, "y": AUTH_Y, "w": node_w(s), "h": 50,
-                "label": s["name"],
-                "category": _categorize_system(s),
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
-        elif any(k in combined for k in ASYNC_KEYWORDS):
-            # Async: spread horizontally in auth row, right of main flow
-            async_systems = [ss for ss in systems
-                            if any(kw in f"{ss.get('name','').lower()} {ss.get('properties',{}).get('service','')}"
-                                   for kw in ASYNC_KEYWORDS)]
-            async_idx = next((i for i, ss in enumerate(async_systems) if ss["id"] == sid), 0)
-            base_col = main_sys_positions.get("sys-lambda", 2) + async_idx
-            col_x = MAIN_COLS[min(base_col, len(MAIN_COLS) - 1)]
-            nodes[sid] = {
-                "x": col_x, "y": AUTH_Y, "w": node_w(s), "h": 65,
-                "label": s["name"],
-                "category": _categorize_system(s),
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
-        elif any(k in combined for k in OBSERVABILITY_KEYWORDS):
-            # Observability: spread horizontally below main flow
-            obs_systems = [ss for ss in systems
-                          if any(kw in f"{ss.get('name','').lower()} {ss.get('properties',{}).get('service','')}"
-                                 for kw in OBSERVABILITY_KEYWORDS)]
-            obs_idx = next((i for i, ss in enumerate(obs_systems) if ss["id"] == sid), 0)
-            base_col = main_sys_positions.get("sys-lambda", 2) + obs_idx
-            col_x = MAIN_COLS[min(base_col, len(MAIN_COLS) - 1)]
-            nodes[sid] = {
-                "x": col_x, "y": OBSERVABILITY_Y, "w": node_w(s), "h": 65,
-                "label": s["name"],
-                "category": _categorize_system(s),
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
-        elif any(k in combined for k in SECRET_KEYWORDS):
-            # Secrets: infra row, right of Lambda
-            col_idx = main_sys_positions.get("sys-lambda", 2) + 1
-            col_x = MAIN_COLS[min(col_idx, len(MAIN_COLS) - 1)]
-            nodes[sid] = {
-                "x": col_x, "y": INFRA_Y, "w": node_w(s), "h": 65,
-                "label": s["name"],
-                "category": _categorize_system(s),
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
-        elif any(k in combined for k in INFRA_KEYWORDS):
-            # Infrastructure: bottom row, centered under Lambda
-            col_idx = main_sys_positions.get("sys-lambda", 2)
-            col_x = MAIN_COLS[min(col_idx, len(MAIN_COLS) - 1)]
-            nodes[sid] = {
-                "x": col_x, "y": INFRA_Y, "w": node_w(s), "h": 65,
-                "label": s["name"],
-                "category": _categorize_system(s),
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
+        if cat in ("security", "cloud", "message_bus"):
+            row_y = ROW_SUPPORT
+        elif cat in ("database",):
+            row_y = ROW_DATA
+        elif cat in ("frontend",):
+            row_y = ROW_SUPPORT
         else:
-            # Fallback: place by category into appropriate row
-            cat = _categorize_system(s)
-            rel_col = _find_related_column_idx(sid, systems_by_id, steps_by_id, main_flow_ordered, main_sys_positions)
-            col_x = MAIN_COLS[min(rel_col, len(MAIN_COLS) - 1)]
-            if cat in ("database",):
-                row_y = OBSERVABILITY_Y  # data layer below main
-            elif cat in ("security",):
-                row_y = INFRA_Y  # security at bottom
-            elif cat in ("cloud", "message_bus"):
-                row_y = AUTH_Y  # network/messaging above main
-            else:
-                row_y = OBSERVABILITY_Y  # default: below main
-            nodes[sid] = {
-                "x": col_x, "y": row_y, "w": node_w(s), "h": node_h(s),
-                "label": s["name"],
-                "category": cat,
-                "subtitles": _get_subtitle(s),
-                "sys": s,
-            }
+            row_y = ROW_DATA
+
+        nodes[sid] = {
+            "x": col_x, "y": row_y, "w": node_w(s), "h": node_h(s),
+            "label": s["name"],
+            "category": cat,
+            "subtitles": _get_subtitle(s),
+            "sys": s,
+        }
 
     # ── Step 7: Resolve overlaps — grid-based push-down ──
     # Group nodes by approximate column (x position), then ensure vertical gaps
@@ -1353,6 +1444,22 @@ def _render_free_flow_svg(
     # Title
     parts.append(_title_svg(title, subtitle, w, colors=colors))
 
+    # Layer column headers (if present)
+    layer_order = layout.get("layer_order", [])
+    if layer_order:
+        for layer in layer_order:
+            layer_nodes = [n for n in nodes.values() if n.get("layer") == layer]
+            if not layer_nodes:
+                continue
+            lx = min(n["x"] for n in layer_nodes)
+            ly = min(n["y"] for n in layer_nodes) + y_offset - 20
+            lw = max(n["x"] + n["w"] for n in layer_nodes) - lx
+            parts.append(
+                f'<text x="{lx + lw // 2}" y="{ly}" text-anchor="middle" '
+                f'font-size="11" fill="{colors["text_sub"]}" font-weight="600" '
+                f'letter-spacing="0.3">{_esc(layer)}</text>'
+            )
+
     # Detect boundary box for non-external systems
     inner_nodes = [n for n in nodes.values() if n.get("category") != "external"]
     region_rect_idx = None
@@ -1373,6 +1480,9 @@ def _render_free_flow_svg(
             f'<text x="{min_x+20}" y="{max(region_min_y - 10, 85)}" font-size="12" '
             f'fill="#F59E0B" font-weight="600">{region_label}</text>'
         )
+
+    # Record insertion point: legend will be inserted here (behind arrows & nodes)
+    legend_insert_idx = len(parts)
 
     # Arrows
     arrow_labels: list[tuple[int, int, str]] = []
@@ -1553,8 +1663,11 @@ def _render_free_flow_svg(
             parts[region_rect_idx] = old_rect.replace(f'height="{old_h}"', f'height="{new_h}"')
 
         # Extend SVG canvas if region rect exceeds it
-        if max_arrow_y + 30 > h:
-            h = max_arrow_y + 30
+        # Reserve 160px at bottom for legend + footer so they don't overlap arrows
+        LEGEND_FOOTER_RESERVE = 160
+        min_canvas_bottom = max_arrow_y + LEGEND_FOOTER_RESERVE if max_arrow_y > 0 else h
+        if min_canvas_bottom > h:
+            h = min_canvas_bottom
             parts[0] = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" font-family="{FONT}">'
 
 
@@ -1586,16 +1699,23 @@ def _render_free_flow_svg(
         parts.append('</g>')
 
 
-    # Legend
-    # Legend — vertical layout
-    cat_samples = [
-        ("backend", "计算层"),
-        ("database", "数据层"),
-        ("cloud", "网络/云服务"),
-    ]
+    # Legend — show categories actually used in the diagram
+    # Render BEFORE arrows & nodes (z-order: legend behind content)
+    _CAT_LABELS = {
+        "frontend": "前端/入口",
+        "cloud": "网关/网络",
+        "backend": "计算/核心",
+        "message_bus": "消息/集成",
+        "database": "数据/存储",
+        "security": "安全/权限",
+        "external": "外部/入口",
+    }
+    used_cats = list(dict.fromkeys(
+        n.get("category", "external") for n in nodes.values()
+    ))
+    cat_samples = [(c, _CAT_LABELS.get(c, c)) for c in used_cats if c != "external"]
     ROW_H = 18
     legend_w = 160
-    # header(20) + 3 swatches(18*3) + gap(6) + 2 arrows(18*2) + padding(10) = 110
     legend_h = 20 + len(cat_samples) * ROW_H + 6 + 2 * ROW_H + 10
     legend_x, legend_y = 40, h - legend_h - 12
 
@@ -1606,7 +1726,6 @@ def _render_free_flow_svg(
         f'<text x="12" y="16" font-size="11" fill="{colors["text_main"]}" '
         f'font-weight="600" letter-spacing="0.3">图 例</text>',
     ]
-    # Color swatches (vertical stack)
     for ci, (cat, label) in enumerate(cat_samples):
         fill, stroke = _resolve_system_colors(cat, theme)
         if not fill:
@@ -1617,7 +1736,6 @@ def _render_free_flow_svg(
             f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
             f'<text x="30" y="{cy+10}" font-size="9" fill="{colors["text_sub"]}">{label}</text>'
         )
-    # Arrow styles
     arrow_base_y = 28 + len(cat_samples) * ROW_H + 6
     legend_parts.append(
         f'<line x1="12" y1="{arrow_base_y+6}" x2="30" y2="{arrow_base_y+6}" '
@@ -1631,7 +1749,10 @@ def _render_free_flow_svg(
         f'<text x="38" y="{arrow_base_y+ROW_H+10}" font-size="9" fill="{colors["text_sub"]}">支撑 / 依赖</text>'
     )
     legend_parts.append('</g>')
-    parts.extend(legend_parts)
+    # Insert legend at the recorded position (behind arrows & nodes)
+    for i, lp in enumerate(legend_parts):
+        parts.insert(legend_insert_idx + i, lp)
+    legend_insert_idx += len(legend_parts)  # update for subsequent inserts
 
     # Footer
     parts.append(
@@ -1649,12 +1770,20 @@ def export_svg_auto(blueprint: dict[str, Any], target: Path, theme: str = "dark"
 
     This is the default export: positions systems by category in columns
     (Cloud → Backend → Database) with semantic colors and arrows.
+    When systems have ``layer`` fields, uses _layout_layered instead.
     """
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry = blueprint.get("meta", {}).get("industry", "")
     subtitle = f"行业：{industry}" if industry else "架构"
 
-    layout = _layout_free_flow(blueprint)
+    # Detect layer-based layout
+    systems = blueprint.get("library", {}).get("systems", [])
+    has_layers = any(s.get("layer") for s in systems)
+
+    if has_layers:
+        layout = _layout_layered(blueprint)
+    else:
+        layout = _layout_free_flow(blueprint)
     # Run quality validation
     issues = _check_layout_quality(layout, blueprint)
     if issues:
@@ -1687,14 +1816,21 @@ def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str 
         elif r["type"] == "evolves-to" or r["label"] == "演进":
             evolve_map.setdefault(r["from"], []).append(r["to"])
 
-    # Market segments — known system IDs for Kingdee products
-    segments = [
-        {"label": "PaaS平台", "ids": ["sys-cosmic"]},
-        {"label": "大型企业", "ids": ["sys-galaxy", "sys-eas", "sys-shr"]},
-        {"label": "中型企业", "ids": ["sys-cosmic-star"]},
-        {"label": "小型企业", "ids": ["sys-star"]},
-        {"label": "微小型", "ids": ["sys-jingdou", "sys-kis"]},
-    ]
+    # Market segments — derive from blueprint data
+    # Use views.productTree.segments or group by system properties
+    _views = blueprint.get("views")
+    if isinstance(_views, dict):
+        segments = _views.get("productTree", {}).get("segments", [])
+    else:
+        segments = []
+    if not segments:
+        # Auto-derive: group systems by their "segment" property
+        seg_map: dict[str, list[str]] = {}
+        for s in systems:
+            seg_label = s.get("properties", {}).get("segment", s.get("segment", ""))
+            if seg_label:
+                seg_map.setdefault(seg_label, []).append(s["id"])
+        segments = [{"label": label, "ids": ids} for label, ids in seg_map.items()]
 
     # Filter to actual systems
     active_segments: list[dict] = []
@@ -1703,7 +1839,7 @@ def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str 
         if matched:
             active_segments.append({"label": seg["label"], "sys_ids": [s["id"] for s in matched]})
 
-    # Fallback
+    # Fallback: all systems in one group
     if not active_segments and systems:
         active_segments = [{"label": "Products", "sys_ids": [s["id"] for s in systems]}]
 
@@ -1717,14 +1853,19 @@ def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str 
     ROOT_W = 160
     ROOT_H = 44
 
-    # Color palette per segment
-    seg_colors = {
-        "PaaS平台": ("#4338CA", "#EEF2FF"),
-        "大型企业": ("#0B6E6E", "#E8F5F5"),
-        "中型企业": ("#0F7B6C", "#E8F5F5"),
-        "小型企业": ("#059669", "#ECFDF5"),
-        "微小型": ("#D97706", "#FEFCE8"),
-    }
+    # Color palette — auto-assign distinct colors per segment
+    _SEG_PALETTE = [
+        ("#4338CA", "#EEF2FF"),
+        ("#0B6E6E", "#E8F5F5"),
+        ("#0F7B6C", "#E8F5F5"),
+        ("#059669", "#ECFDF5"),
+        ("#D97706", "#FEFCE8"),
+        ("#7C3AED", "#F5F3FF"),
+        ("#DC2626", "#FEF2F2"),
+    ]
+    seg_colors: dict[str, tuple[str, str]] = {}
+    for i, seg in enumerate(active_segments):
+        seg_colors[seg["label"]] = _SEG_PALETTE[i % len(_SEG_PALETTE)]
 
     # Pass 1: compute layout
     max_cols = 0
@@ -1760,18 +1901,19 @@ def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str 
         f'font-weight="700">{_esc(title)} — 产品谱系</text>'
         f'<text x="{PAD_X + 16}" y="{PAD_Y + 42}" '
         f'font-size="11" fill="{colors["text_sub"]}" font-family="{FONT_MONO}">'
-        f'Kingdee Product Family</text></g>'
+        f'{_esc(title)}</text></g>'
     )
 
     cx = canvas_w / 2
 
-    # Root node
+    # Root node — use blueprint title
+    root_label = title.split("—")[0].strip() if "—" in title else title.split("-")[0].strip()
     parts.append(
         f'<rect class="node-rect" x="{cx - ROOT_W / 2}" y="{root_y}" width="{ROOT_W}" height="{ROOT_H}" '
         f'rx="8" fill="#1E293B" stroke="#0F172A" stroke-width="1.5"/>'
         f'<text class="node-label" x="{cx}" y="{root_y + ROOT_H / 2 + 5}" '
         f'text-anchor="middle" font-size="15" fill="#FFFFFF" '
-        f'font-weight="700">金蝶 Kingdee</text>'
+        f'font-weight="700">{_esc(root_label)}</text>'
     )
 
     node_positions: dict[str, tuple[int, int]] = {}
@@ -1913,14 +2055,19 @@ def export_matrix_svg(blueprint: dict[str, Any], target: Path, theme: str = "lig
     systems = lib.get("systems", [])
     capabilities = lib.get("capabilities", [])
 
-    # Market segments for row grouping
-    segments = [
-        {"label": "PaaS平台", "ids": ["sys-cosmic"]},
-        {"label": "大型企业", "ids": ["sys-galaxy", "sys-eas", "sys-shr"]},
-        {"label": "中型企业", "ids": ["sys-cosmic-star"]},
-        {"label": "小型企业", "ids": ["sys-star"]},
-        {"label": "微小型", "ids": ["sys-jingdou", "sys-kis"]},
-    ]
+    # Market segments — derive from blueprint data
+    _views = blueprint.get("views")
+    if isinstance(_views, dict):
+        segments = _views.get("productTree", {}).get("segments", [])
+    else:
+        segments = []
+    if not segments:
+        seg_map: dict[str, list[str]] = {}
+        for s in systems:
+            seg_label = s.get("properties", {}).get("segment", s.get("segment", ""))
+            if seg_label:
+                seg_map.setdefault(seg_label, []).append(s["id"])
+        segments = [{"label": label, "ids": ids} for label, ids in seg_map.items()]
 
     cap_by_id = {c["id"]: c for c in capabilities}
     sys_by_id = {s["id"]: s for s in systems}
@@ -1950,13 +2097,10 @@ def export_matrix_svg(blueprint: dict[str, Any], target: Path, theme: str = "lig
     canvas_w = PAD_X * 2 + SEG_LABEL_W + PROD_NAME_W + n_cols * CAP_COL_W
     canvas_h = PAD_Y * 2 + HEADER_H + n_rows * ROW_H + (n_rows - 1) * ROW_GAP + 80
 
-    seg_colors = {
-        "PaaS平台": "#4338CA",
-        "大型企业": "#0B6E6E",
-        "中型企业": "#0F7B6C",
-        "小型企业": "#059669",
-        "微小型": "#D97706",
-    }
+    _SEG_STROKE_PALETTE = ["#4338CA", "#0B6E6E", "#0F7B6C", "#059669", "#D97706", "#7C3AED", "#DC2626"]
+    seg_colors: dict[str, str] = {}
+    for i, seg in enumerate(segments):
+        seg_colors[seg["label"]] = _SEG_STROKE_PALETTE[i % len(_SEG_STROKE_PALETTE)]
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w}" height="{canvas_h}" '
