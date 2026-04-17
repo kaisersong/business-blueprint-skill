@@ -8,3 +8,6 @@ __pycache__/
 docs/
 demos/*.exports/
 demos/common-demo.txt
+.xiaok/
+*.blueprint.html
+*.blueprint.exports/
