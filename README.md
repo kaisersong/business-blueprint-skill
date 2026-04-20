@@ -1,4 +1,4 @@
-# business-blueprint-skill
+# kai-business-blueprint
 
 > 售前需求、会议纪要、RFP 材料 → 可编辑的业务能力蓝图、泳道流程图、应用架构图。一份 canonical JSON IR，多个下游导出格式（SVG / draw.io / Excalidraw / Mermaid）。
 
@@ -61,16 +61,16 @@ The skill file (`SKILL.md`) is a routing layer — it tells Claude *which* file 
 ### Claude Code
 
 ```bash
-git clone https://github.com/kaisersong/business-blueprint-skill ~/.claude/skills/business-blueprint-skill
+git clone https://github.com/kaisersong/kai-business-blueprint ~/.claude/skills/kai-business-blueprint
 ```
 
-Then: `cd business-blueprint-skill && pip install -e .`
+Then: `cd kai-business-blueprint && pip install -e .`
 
 ### OpenClaw
 
 ```bash
-git clone https://github.com/kaisersong/business-blueprint-skill ~/.openclaw/skills/business-blueprint-skill
-cd business-blueprint-skill && pip install -e .
+git clone https://github.com/kaisersong/kai-business-blueprint ~/.openclaw/skills/kai-business-blueprint
+cd kai-business-blueprint && pip install -e .
 ```
 
 ---
@@ -151,7 +151,7 @@ The layout engine computes positions dynamically with overlap resolution, horizo
 ## Project Structure
 
 ```
-business-blueprint-skill/
+kai-business-blueprint/
 ├── SKILL.md                      # Skill definition (routing layer)
 ├── business_blueprint/           # Python engine (zero external deps)
 │   ├── cli.py                    # CLI entry point
@@ -239,12 +239,14 @@ for rel in bp["relations"]:
 
 | Platform | Version | Install path |
 |----------|---------|--------------|
-| Claude Code | any | `~/.claude/skills/business-blueprint-skill/` |
-| OpenClaw | >= 0.9 | `~/.openclaw/skills/business-blueprint-skill/` |
+| Claude Code | any | `~/.claude/skills/kai-business-blueprint/` |
+| OpenClaw | >= 0.9 | `~/.openclaw/skills/kai-business-blueprint/` |
 
 ---
 
 ## Version History
+
+**v0.8.0** — Skill rename: rebranded from `business-blueprint-skill` to `kai-business-blueprint`; updated all GitHub URLs, install paths, and documentation references.
 
 **v0.7.0** — Visual enhancements: 4 semantic arrow types (supports/depends-on/flows-to/owned-by) with distinct colors, dash patterns, and SVG markers; semantic node shapes (diamond for flowStep, left color strip for systems, rounded rects for capabilities, pill for actors); 3 industry theme overlays (retail=#F97316, finance=#3B82F6, manufacturing=#6B7280); HTML template-driven viewer generation (replaces 244 lines of f-strings); architecture layout fix — one column per unique capability; free-flow now renders full relation arrows from `blueprint.relations`; same-column arrow routing uses direct vertical paths; region box covers all system nodes; 46 new tests.
 

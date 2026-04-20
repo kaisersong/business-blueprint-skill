@@ -1,5 +1,5 @@
 ---
-name: business-blueprint-skill
+name: kai-business-blueprint
 description: Use when turning presales requirements, meeting notes, or solution materials into editable business capability blueprints, swimlane flows, and application architecture diagrams. Use when generating blueprint JSON, static HTML viewers, or exporting to SVG, draw.io, Excalidraw, or Mermaid formats.
 ---
 
@@ -142,7 +142,7 @@ This skill produces **semantic intermediate artifacts**. Downstream skills consu
 
 When running in an isolated Python sandbox (Jupyter, notebook, cloud REPL) that auto-installs dependencies:
 
-1. **The sandbox auto-installs `business-blueprint-skill` from PyPI.** Do NOT try to `pip install -e` or use `sys.path` hacks with `__file__` — `__file__` is undefined in Jupyter.
+1. **The sandbox auto-installs `kai-business-blueprint` from PyPI.** Do NOT try to `pip install -e` or use `sys.path` hacks with `__file__` — `__file__` is undefined in Jupyter.
 
 2. **For `--export` (after blueprint JSON exists):**
    ```python

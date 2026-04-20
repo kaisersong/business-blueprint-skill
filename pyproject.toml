@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "business-blueprint-skill"
-version = "0.7.0"
+name = "kai-business-blueprint"
+version = "0.8.0"
 description = "Python-first blueprint IR generator and exporter"
 requires-python = ">=3.12"
 dependencies = []

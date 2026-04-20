@@ -1,4 +1,4 @@
-# business-blueprint-skill
+# kai-business-blueprint
 
 > 售前需求、会议纪要、RFP 材料 → 可编辑的业务能力蓝图、泳道流程图、应用架构图。一份 canonical JSON IR，多个下游导出格式（SVG / draw.io / Excalidraw / Mermaid）。
 
@@ -61,16 +61,16 @@ IR 文件的特点：
 ### Claude Code
 
 ```bash
-git clone https://github.com/kaisersong/business-blueprint-skill ~/.claude/skills/business-blueprint-skill
+git clone https://github.com/kaisersong/kai-business-blueprint ~/.claude/skills/kai-business-blueprint
 ```
 
-然后：`cd business-blueprint-skill && pip install -e .`
+然后：`cd kai-business-blueprint && pip install -e .`
 
 ### OpenClaw
 
 ```bash
-git clone https://github.com/kaisersong/business-blueprint-skill ~/.openclaw/skills/business-blueprint-skill
-cd business-blueprint-skill && pip install -e .
+git clone https://github.com/kaisersong/kai-business-blueprint ~/.openclaw/skills/kai-business-blueprint
+cd kai-business-blueprint && pip install -e .
 ```
 
 ---
@@ -149,7 +149,7 @@ SVG 导出渲染三层架构图：
 ## 项目结构
 
 ```
-business-blueprint-skill/
+kai-business-blueprint/
 ├── SKILL.md                      # 技能定义（路由层）
 ├── business_blueprint/           # Python 引擎（零外部依赖）
 │   ├── cli.py                    # 命令行入口
@@ -237,12 +237,14 @@ for rel in bp["relations"]:
 
 | 平台 | 版本 | 安装路径 |
 |------|------|----------|
-| Claude Code | 任意 | `~/.claude/skills/business-blueprint-skill/` |
-| OpenClaw | >= 0.9 | `~/.openclaw/skills/business-blueprint-skill/` |
+| Claude Code | 任意 | `~/.claude/skills/kai-business-blueprint/` |
+| OpenClaw | >= 0.9 | `~/.openclaw/skills/kai-business-blueprint/` |
 
 ---
 
 ## 版本日志
+
+**v0.8.0** — 技能重命名：从 `business-blueprint-skill` 更名为 `kai-business-blueprint`；更新所有 GitHub 链接、安装路径与文档引用。
 
 **v0.7.0** — 视觉增强：4 种语义箭头类型（支撑/依赖/数据流/负责），各有独立颜色、虚线样式和 SVG 标记；语义节点形状（菱形用于流程步骤、左侧色条用于系统、圆角矩形用于能力、药丸形用于角色）；3 个行业主题叠加色（零售=#F97316、金融=#3B82F6、制造=#6B7280）；HTML 模板驱动查看器生成（替代 244 行 f-string 拼接）；架构布局修复——每个唯一能力独占一列；自由流式布局现在从 `blueprint.relations` 渲染完整关系箭头；同列箭头使用直接垂直路径；区域框覆盖所有系统节点；46 条新增测试。
 

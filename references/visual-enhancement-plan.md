@@ -2,7 +2,7 @@
 
 ## Background
 
-After comparing `business-blueprint-skill` with two open-source projects, we identified features worth integrating. This document defines what to borrow, what to skip, and the implementation plan.
+After comparing `kai-business-blueprint` with two open-source projects, we identified features worth integrating. This document defines what to borrow, what to skip, and the implementation plan.
 
 **Source projects:**
 - [fireworks-tech-graph](https://github.com/yizhiyanhua-ai/fireworks-tech-graph) — Semantic SVG tech architecture diagrams with arrow system, shape vocabulary, and visual styles
@@ -10,7 +10,7 @@ After comparing `business-blueprint-skill` with two open-source projects, we ide
 
 ## Current State
 
-| Feature | Status in business-blueprint-skill |
+| Feature | Status in kai-business-blueprint |
 |---------|-----------------------------------|
 | Arrow rendering | Solid/dashed, single color. No per-type differentiation. |
 | Node shapes | All `<rect>` with different `rx` values. No semantic shape differentiation. |
