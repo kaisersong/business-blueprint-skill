@@ -243,6 +243,18 @@ def test_export_layer_poster_svg_uses_tighter_corner_radii(tmp_path: Path) -> No
     assert float(card_match.group(1)) <= 14
 
 
+def test_export_layer_poster_svg_uses_muted_light_palette_in_light_theme(tmp_path: Path) -> None:
+    target = tmp_path / "poster-light.svg"
+    export_layer_poster_svg(POSTER_BLUEPRINT, target, theme="light")
+    svg = target.read_text(encoding="utf-8")
+
+    assert 'fill="#F0FDFA" fill-opacity="1"' in svg
+    assert 'fill="#CCFBF1"/><text x="' in svg
+    assert 'fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.8"/>' in svg
+    assert "#0E2A3D" not in svg
+    assert "#083344" not in svg
+
+
 def test_export_layer_poster_svg_centers_sparse_rows_within_content_band(tmp_path: Path) -> None:
     target = tmp_path / "poster.svg"
     export_layer_poster_svg(POSTER_BLUEPRINT, target)

@@ -46,9 +46,32 @@ CANVAS_X = 40
 CANVAS_PAD_TOP = 110  # room for title block
 COL_GAP = 20
 
+POSTER_LAYER_PALETTES: dict[str, list[dict[str, str]]] = {
+    "dark": [
+        {"accent": "#22D3EE", "band_fill": "#0E2A3D", "badge_fill": "#083344"},
+        {"accent": "#FBBF24", "band_fill": "#2A2010", "badge_fill": "#78350F"},
+        {"accent": "#34D399", "band_fill": "#0E2E1F", "badge_fill": "#064E3B"},
+        {"accent": "#4ADE80", "band_fill": "#0F2518", "badge_fill": "#14532D"},
+        {"accent": "#A78BFA", "band_fill": "#1E1535", "badge_fill": "#4C1D95"},
+        {"accent": "#FB7185", "band_fill": "#2A1018", "badge_fill": "#881337"},
+    ],
+    "light": [
+        {"accent": "#0F766E", "band_fill": "#F0FDFA", "badge_fill": "#CCFBF1"},
+        {"accent": "#B45309", "band_fill": "#FFFBEB", "badge_fill": "#FEF3C7"},
+        {"accent": "#047857", "band_fill": "#ECFDF5", "badge_fill": "#D1FAE5"},
+        {"accent": "#166534", "band_fill": "#F0FDF4", "badge_fill": "#DCFCE7"},
+        {"accent": "#6D28D9", "band_fill": "#F5F3FF", "badge_fill": "#E9D5FF"},
+        {"accent": "#BE123C", "band_fill": "#FFF1F2", "badge_fill": "#FFE4E6"},
+    ],
+}
+
 
 def _esc(s: str) -> str:
     return escape(str(s))
+
+
+def _poster_layer_palette(theme: str) -> list[dict[str, str]]:
+    return POSTER_LAYER_PALETTES["dark" if theme == "dark" else "light"]
 
 
 # ─── Node rendering ──────────────────────────────────────────────
@@ -3061,14 +3084,10 @@ def export_layer_poster_svg(blueprint: dict[str, Any], target: Path, theme: str 
     MAX_COLS = max(1, min(3, CONTENT_W // (CARD_W + CARD_GAP)))
     canvas_w = 1440
 
-    layer_palette = [
-        ("#22D3EE", "#0E2A3D", "#083344"),
-        ("#FBBF24", "#2A2010", "#78350F"),
-        ("#34D399", "#0E2E1F", "#064E3B"),
-        ("#4ADE80", "#0F2518", "#14532D"),
-        ("#A78BFA", "#1E1535", "#4C1D95"),
-        ("#FB7185", "#2A1018", "#881337"),
-    ]
+    layer_palette = _poster_layer_palette(theme)
+    band_fill_opacity = "0.28" if theme == "dark" else "1"
+    label_fill_opacity = "0.92" if theme == "dark" else "0.98"
+    card_stroke = colors.get("layer_border", colors["border"]) if theme == "light" else None
 
     band_layouts: list[dict[str, Any]] = []
     current_y = PAD_Y + TITLE_H + 18
@@ -3111,7 +3130,9 @@ def export_layer_poster_svg(blueprint: dict[str, Any], target: Path, theme: str 
     )
 
     for idx, band in enumerate(band_layouts):
-        accent, card_fill, accent_dark = band["palette"]
+        accent = band["palette"]["accent"]
+        band_fill = band["palette"]["band_fill"]
+        badge_fill = band["palette"]["badge_fill"]
         band_x = PAD_X + 8
         band_y = band["y"]
         band_w = canvas_w - PAD_X * 2 - 16
@@ -3128,10 +3149,10 @@ def export_layer_poster_svg(blueprint: dict[str, Any], target: Path, theme: str 
         layer_summary = " / ".join(system["name"] for system in band["items"])
 
         parts.append(
-            f'<rect x="{band_x}" y="{band_y}" width="{band_w}" height="{band_h}" rx="18" fill="{card_fill}" fill-opacity="0.28" stroke="{accent}" stroke-width="1.2"/>'
+            f'<rect x="{band_x}" y="{band_y}" width="{band_w}" height="{band_h}" rx="18" fill="{band_fill}" fill-opacity="{band_fill_opacity}" stroke="{accent}" stroke-width="1.2"/>'
         )
         parts.append(
-            f'<rect x="{band_x + 14}" y="{band_y + 14}" width="{LAYER_LABEL_W - 28}" height="{band_h - 28}" rx="14" fill="{colors["canvas"]}" fill-opacity="0.92" stroke="{colors["border"]}" stroke-width="1"/>'
+            f'<rect x="{band_x + 14}" y="{band_y + 14}" width="{LAYER_LABEL_W - 28}" height="{band_h - 28}" rx="14" fill="{colors["canvas"]}" fill-opacity="{label_fill_opacity}" stroke="{colors["border"]}" stroke-width="1"/>'
         )
         parts.append(
             f'<text x="{label_x}" y="{label_y}" font-size="12" font-weight="800" fill="{accent}" letter-spacing="0.8">{_esc(layer_prefix)}</text>'
@@ -3149,10 +3170,10 @@ def export_layer_poster_svg(blueprint: dict[str, Any], target: Path, theme: str 
             cy = content_y + row * (CARD_H + ROW_GAP)
             features = system.get("features", [])[:3]
             parts.append(
-                f'<rect x="{cx}" y="{cy}" width="{CARD_W}" height="{CARD_H}" rx="14" fill="{colors["canvas"]}" stroke="{accent}" stroke-width="1.8"/>'
+                f'<rect x="{cx}" y="{cy}" width="{CARD_W}" height="{CARD_H}" rx="14" fill="{colors["canvas"]}" stroke="{card_stroke or accent}" stroke-width="1.8"/>'
             )
             parts.append(
-                f'<rect x="{cx + 16}" y="{cy + 16}" width="68" height="18" rx="9" fill="{accent_dark}"/>'
+                f'<rect x="{cx + 16}" y="{cy + 16}" width="68" height="18" rx="9" fill="{badge_fill}"/>'
                 f'<text x="{cx + 50}" y="{cy + 29}" text-anchor="middle" font-size="9" font-weight="700" fill="{accent}">MODULE</text>'
             )
             parts.append(
