@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .model import load_json, write_json
+from model import load_json, write_json
 
 
 def _safe_json_for_script(value: Any) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .renderers import build_drawio_spec, render_drawio
+from renderers import build_drawio_spec, render_drawio
 
 _WATERMARK = "<!-- business-blueprint-skill v{version} -->"
 

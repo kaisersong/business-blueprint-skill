@@ -5,18 +5,21 @@ import json
 import sys
 from pathlib import Path
 
-from .export_drawio import export_drawio
-from .export_excalidraw import export_excalidraw
-from .export_html import export_html_viewer
-from .export_integrity import ExportIntegrityError
-from .export_mermaid import export_mermaid
-from .export_svg import export_svg, export_svg_auto, export_product_tree_svg, export_matrix_svg, export_capability_map_svg, export_swimlane_flow_svg
-from .generate import write_plan_output
-from .model import load_json, write_json
-from .prompt_generator import generate_prompt_file
-from .projection import build_narrative_projection, default_projection_path
-from .validate import validate_blueprint
-from .viewer import write_viewer_package
+# 确保可以找到本地模块（纯Skill执行，使用绝对路径）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from export_drawio import export_drawio
+from export_excalidraw import export_excalidraw
+from export_html import export_html_viewer
+from export_integrity import ExportIntegrityError
+from export_mermaid import export_mermaid
+from export_svg import export_svg, export_svg_auto, export_product_tree_svg, export_matrix_svg, export_capability_map_svg, export_swimlane_flow_svg
+from generate import write_plan_output
+from model import load_json, write_json
+from prompt_generator import generate_prompt_file
+from projection import build_narrative_projection, default_projection_path
+from validate import validate_blueprint
+from viewer import write_viewer_package
 
 
 def build_parser() -> argparse.ArgumentParser:

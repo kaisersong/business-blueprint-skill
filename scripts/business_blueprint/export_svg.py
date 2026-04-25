@@ -16,14 +16,18 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from .export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
-from .export_routes import resolve_export_route
-from .export_text import estimate_svg_text_width as _estimate_svg_text_width
-from .export_text import wrap_text_to_width as _wrap_text_to_width
-from .export_text import wrap_timeline_text as _wrap_timeline_text
-from .export_theme import ARROW_STYLES, C_DARK, C_LIGHT, INDUSTRY_THEMES, resolve_arrow_style as _resolve_arrow_style
-from .export_theme import resolve_system_colors as _resolve_system_colors
-from .export_theme import resolve_theme as _resolve_theme
+from export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
+from export_routes import resolve_export_route
+from export_text import estimate_svg_text_width as _estimate_svg_text_width
+from export_text import wrap_text_to_width as _wrap_text_to_width
+from export_text import wrap_timeline_text as _wrap_timeline_text
+from export_theme import ARROW_STYLES, C_DARK, C_LIGHT, INDUSTRY_THEMES, resolve_arrow_style as _resolve_arrow_style
+from export_theme import resolve_system_colors as _resolve_system_colors
+from export_theme import resolve_theme as _resolve_theme
+
+# Import IntentResolver + RuleEngine for layer assignment
+from intent_resolver import IntentResolver
+from rule_engine import RuleEngine, load_perspective, load_overlay
 
 
 # ─── Design tokens ───────────────────────────────────────────────
@@ -170,25 +174,50 @@ def _arrow_line(x1: int, y1: int, x2: int, y2: int,
 
 
 def _render_arrow_line(sx: int, sy: int, tx: int, ty: int, arrow: dict, colors: dict) -> str:
-    """Draw a straight arrow line with proper style and marker for free-flow layout."""
-    if arrow.get("dashed"):
-        style = f'stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"'
-        marker = "arrow-dashed"
-    else:
-        style = f'stroke="{colors["arrow"]}" stroke-width="1.5"'
+    """Draw a straight arrow line with proper style and marker for free-flow layout.
+
+    Relation type color mapping:
+      - flows-to: blue (#60A5FA)
+      - supports: green (colors["arrow"])
+      - depends-on: gray dashed (colors["arrow_muted"])
+      - owned-by: yellow dashed (#FBBF24)
+    """
+    rel_type = arrow.get("relation_type", "supports")
+
+    # Determine color based on relation type
+    if rel_type == "flows-to":
+        arrow_color = "#60A5FA"  # blue
         marker = "arrow-solid"
+        style = f'stroke="{arrow_color}" stroke-width="1.5"'
+    elif rel_type == "owned-by":
+        arrow_color = "#FBBF24"  # yellow
+        marker = "arrow-dot"
+        style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="3,3"'
+    elif arrow.get("dashed") or rel_type == "depends-on":
+        arrow_color = colors["arrow_muted"]  # gray
+        marker = "arrow-dashed"
+        style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"'
+    else:
+        # supports or other types
+        arrow_color = colors["arrow"]  # green
+        marker = "arrow-solid"
+        style = f'stroke="{arrow_color}" stroke-width="1.5"'
+
     return f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" {style} marker-end="url(#{marker})"/>'
 
 
 def _arrow_label(mx: int, my: int, label: str,
                  colors: dict | None = None) -> str:
-    """Draw arrow label with background rect for readability."""
+    """Draw arrow label with background rect for readability.
+
+    Background is fully opaque (opacity=1.0) to ensure labels cover arrows.
+    """
     c = colors if colors is not None else C
     label_w = len(label) * 6 + 12
     return (
         f'<rect x="{mx - label_w // 2}" y="{my - 9}" '
         f'width="{label_w}" height="18" rx="3" '
-        f'fill="{c["arrow_label_bg"]}" fill-opacity="0.9"/>'
+        f'fill="{c["arrow_label_bg"]}" fill-opacity="1.0"/>'
         f'<text x="{mx}" y="{my + 4}" text-anchor="middle" '
         f'font-size="10" fill="{c["arrow_label"]}" font-family="{FONT}">{_esc(label)}</text>'
     )
@@ -199,7 +228,12 @@ def _label_box(mx: int, my: int, label: str) -> tuple[int, int, int, int]:
     return mx - label_w // 2, my - 9, label_w, 18
 
 
-def _label_boxes_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int], pad: int = 4) -> bool:
+def _label_boxes_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int], pad: int = 8) -> bool:
+    """Check if two label rectangles overlap.
+
+    Args:
+        pad: Minimum gap between boxes (default 8px to ensure labels don't touch nodes).
+    """
     ax, ay, aw, ah = a
     bx, by, bw, bh = b
     return not (
@@ -223,6 +257,7 @@ def _render_arrow_labels(
     # Add node rectangles to occupied so labels avoid nodes
     if node_rects:
         occupied.extend(node_rects)
+
     margin_x = 8
     min_y = 78
     max_y = max(min_y, canvas_h - 26)
@@ -232,14 +267,14 @@ def _render_arrow_labels(
         base_x = int(item["x"])
         base_y = int(item["y"])
         offsets = item.get("offsets") or [
-            (0, -14),
-            (0, 14),
-            (28, -14),
-            (-28, -14),
-            (28, 14),
-            (-28, 14),
-            (0, -32),
-            (0, 32),
+            (0, -28),  # ↑ Increase upward offset to avoid node overlap
+            (0, 28),   # ↓ Increase downward offset
+            (40, -28), # ↑↑ Upper right corner (farther from nodes)
+            (-40, -28), # ↑↑ Upper left corner
+            (40, 28),  # ↓↓ Lower right corner
+            (-40, 28), # ↓↓ Lower left corner
+            (0, -56),  # ↑↑↑ Extra high (emergency fallback)
+            (0, 56),   # ↓↓↓ Extra low
         ]
 
         chosen: tuple[int, int, tuple[int, int, int, int]] | None = None
@@ -250,10 +285,11 @@ def _render_arrow_labels(
             x = max(margin_x, min(x, max(margin_x, canvas_w - box_w - margin_x)))
             y = max(min_y, min(y, max_y))
             candidate = (x, y, box_w, box_h)
-            if any(_label_boxes_overlap(candidate, other) for other in occupied):
-                continue
-            chosen = (x + box_w // 2, y + 9, candidate)
-            break
+            # Check collision with occupied areas (nodes + other labels)
+            has_collision = any(_label_boxes_overlap(candidate, other) for other in occupied)
+            if not has_collision:
+                chosen = (x + box_w // 2, y + 9, candidate)
+                break
 
         if chosen is None:
             box_w = len(label) * 6 + 12
@@ -1058,25 +1094,31 @@ def _layout_layered(blueprint: dict[str, Any]) -> dict[str, Any]:
             y_cursor += h + ROW_GAP
         x_cursor += col_w + COL_GAP
 
-    # ── Build arrows from relations ──
+    # ── Build arrows from relations ───
     arrows: list[dict] = []
     seen_pairs: set[tuple[str, str]] = set()
 
-    def _add_arrow(from_id: str, to_id: str, label: str, dashed: bool) -> None:
+    def _add_arrow(from_id: str, to_id: str, label: str, dashed: bool, relation_type: str = "supports") -> None:
         key = (from_id, to_id)
         if key in seen_pairs:
             return
         seen_pairs.add(key)
         if from_id in nodes and to_id in nodes:
-            arrows.append({"from": from_id, "to": to_id, "dashed": dashed, "label": label})
+            arrows.append({
+                "from": from_id, "to": to_id,
+                "dashed": dashed,
+                "label": label,
+                "relation_type": relation_type,  # ← Save relation_type for color mapping
+            })
 
     for rel in relations:
         src_id = rel.get("from", "")
         tgt_id = rel.get("to", "")
         rel_type = rel.get("type", "data")
         label = rel.get("label", "")
-        dashed = rel_type in ("support", "uses")
-        _add_arrow(src_id, tgt_id, label, dashed)
+        # Determine dashed based on relation type
+        dashed = rel_type in ("depends-on", "owned-by", "support", "uses")
+        _add_arrow(src_id, tgt_id, label, dashed, relation_type=rel_type)
 
     # Actor → first layer systems
     if has_actors:
@@ -1411,22 +1453,6 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
         # Otherwise arrow to the first main flow system on MAIN_Y
         arrows.append({"from": "clients", "to": first_main_sid, "dashed": False, "label": ""})
 
-    # Deduplicate arrows (prefer relations over synthetic ones)
-    seen_pairs: set[tuple[str, str]] = set()
-    unique_arrows = []
-    for a in arrows:
-        key = (a["from"], a["to"])
-        if key not in seen_pairs:
-            seen_pairs.add(key)
-            unique_arrows.append(a)
-        elif a.get("relation_type"):
-            # Upgrade existing synthetic arrow to typed relation arrow
-            for i, existing in enumerate(unique_arrows):
-                if (existing["from"], existing["to"]) == key:
-                    unique_arrows[i] = a
-                    break
-    arrows = unique_arrows
-
     # ── Step 9b: Add arrows from blueprint relations ──
     # System-to-system relations where both endpoints exist as nodes
     for rel in blueprint.get("relations", []):
@@ -1442,7 +1468,7 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
                 "relation_type": rel_type,
             })
 
-    # ── Step 9c: Add dashed support arrows from non-main-flow to main flow ──
+    # ── Step 9c: Add dashed support arrows from non-main-flow to main flow ───
     # Generic: link auxiliary systems to their related main-flow systems
     # based on shared capabilities and flow step associations
     for s in systems:
@@ -1477,7 +1503,25 @@ def _layout_free_flow(blueprint: dict[str, Any]) -> dict[str, Any]:
             if best_sid and best_sid in nodes:
                 arrows.append({"from": sid, "to": best_sid, "dashed": True, "label": ""})
 
-    # ── Step 9: Calculate canvas size ──
+    # ── Deduplicate arrows (prefer typed relations over synthetic ones) ───
+    # Process ALL arrows (including Step 9c synthetic arrows)
+    # Strategy: first appearance wins, but upgrade to typed relation if available
+    seen_pairs: set[tuple[str, str]] = set()
+    unique_arrows = []
+    for a in arrows:
+        key = (a["from"], a["to"])
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            unique_arrows.append(a)
+        elif a.get("relation_type"):
+            # Upgrade existing synthetic arrow to typed relation arrow
+            for i, existing in enumerate(unique_arrows):
+                if (existing["from"], existing["to"]) == key:
+                    unique_arrows[i] = a  # replace with typed relation
+                    break
+    arrows = unique_arrows
+
+    # ── Step 10: Calculate canvas size ──
     if nodes:
         max_x = max(n["x"] + n["w"] for n in nodes.values())
         max_y = max(n["y"] + n["h"] for n in nodes.values())
@@ -1781,7 +1825,8 @@ def _render_free_flow_svg(
             ty = sy  # 强制水平
             parts.append(_render_arrow_line(sx, sy, tx, ty, arrow, colors))
             if arrow.get("label"):
-                arrow_labels.append({"x": (sx + tx) // 2, "y": sy, "label": arrow["label"], "offsets": [(0, -14), (0, 14), (30, -14), (-30, -14), (30, 14), (-30, 14)]})
+                # Use ±28px offsets to avoid overlapping with nodes (same as default offsets)
+                arrow_labels.append({"x": (sx + tx) // 2, "y": sy, "label": arrow["label"], "offsets": [(0, -28), (0, 28), (40, -28), (-40, -28), (40, 28), (-40, 28), (0, -56), (0, 56)]})
         else:
             # Cross-row: elbow path routing
             if src["y"] > tgt["y"]:
@@ -1838,12 +1883,25 @@ def _render_free_flow_svg(
                         mid_y = min(candidates, key=lambda c: abs(c - mid_y))
                     break
 
-            if arrow.get("dashed"):
-                style = f'stroke="{colors["arrow_muted"]}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5" fill="none"'
-                marker = "arrow-dashed"
-            else:
-                style = f'stroke="{colors["arrow"]}" stroke-width="1.5" fill="none"'
+            # Determine color based on relation type (same logic as _render_arrow_line)
+            rel_type = arrow.get("relation_type", "supports")
+            if rel_type == "flows-to":
+                arrow_color = "#60A5FA"  # blue
                 marker = "arrow-solid"
+                style = f'stroke="{arrow_color}" stroke-width="1.5" fill="none"'
+            elif rel_type == "owned-by":
+                arrow_color = "#FBBF24"  # yellow
+                marker = "arrow-dot"
+                style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="3,3" fill="none"'
+            elif arrow.get("dashed") or rel_type == "depends-on":
+                arrow_color = colors["arrow_muted"]  # gray
+                marker = "arrow-dashed"
+                style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5" fill="none"'
+            else:
+                # supports or other types
+                arrow_color = colors["arrow"]  # green
+                marker = "arrow-solid"
+                style = f'stroke="{arrow_color}" stroke-width="1.5" fill="none"'
 
             if abs(sx - tx) < 8:
                 parts.append(f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" {style} marker-end="url(#{marker})"/>')
@@ -2062,6 +2120,33 @@ def _export_by_route(
     theme: str,
     industry: str | None = None,
 ) -> None:
+    # ─── Step 1: Intent Resolution + Layer Assignment ───
+    # Apply IntentResolver + RuleEngine to assign layer to each system
+    resolver = IntentResolver()
+
+    # Resolve intent
+    resolved = resolver.resolve_intent(blueprint)
+    intent = resolved["blueprintIntent"]
+    strategy_id = resolved["strategySelection"]["selected"]
+
+    # Load perspective
+    perspective = load_perspective(strategy_id)
+
+    # Load overlay if secondary intent detected
+    overlay = None
+    if intent.get("secondary"):
+        overlay = load_overlay(intent["secondary"])
+
+    # Initialize RuleEngine with perspective + overlay
+    engine = RuleEngine(perspective=perspective, overlay=overlay)
+
+    # Assign layer to each system
+    systems = blueprint.get("library", {}).get("systems", [])
+    for system in systems:
+        layer_result = engine.assign_layer(system)
+        system["layer"] = layer_result["layer"]
+
+    # ─── Step 2: Route-specific Export ───
     if route == "evolution":
         export_evolution_timeline_svg(blueprint, target, theme=theme)
         return
@@ -2081,8 +2166,7 @@ def _export_by_route(
     industry_label = industry or ""
     subtitle = f"行业：{industry_label}" if industry_label else "架构"
 
-    # Detect layer-based layout
-    systems = blueprint.get("library", {}).get("systems", [])
+    # Detect layer-based layout (now systems have layer fields)
     has_layers = any(s.get("layer") for s in systems)
 
     if has_layers:

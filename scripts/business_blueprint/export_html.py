@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from .export_svg import FONT, FONT_MONO, _resolve_theme
+from export_svg import FONT, FONT_MONO, _resolve_theme
 
 
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "html-viewer.html"
@@ -48,7 +48,7 @@ def _build_architecture_svg(blueprint: dict[str, Any], colors: dict, theme: str)
     freeflow rather than silently switching to another generic view type.
     """
     import tempfile
-    from .export_svg import export_svg_auto
+    from export_svg import export_svg_auto
 
     industry = blueprint.get("meta", {}).get("industry", "") or None
     with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as f:

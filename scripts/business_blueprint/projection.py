@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .model import utc_now
+from model import utc_now
 
 
 def default_projection_path(blueprint_path: Path) -> Path:

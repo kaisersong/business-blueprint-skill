@@ -4,8 +4,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .clarify import build_clarify_requests
-from .model import load_json, new_revision_meta, write_json
+from clarify import build_clarify_requests
+from model import load_json, new_revision_meta, write_json
 
 
 _VALID_INDUSTRIES = frozenset({"common", "finance", "manufacturing", "retail"})

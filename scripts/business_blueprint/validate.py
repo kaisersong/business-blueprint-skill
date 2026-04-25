@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from .model import ensure_top_level_shape
+from model import ensure_top_level_shape
 
 
 def _issue(
