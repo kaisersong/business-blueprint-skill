@@ -17,6 +17,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
+from export_knowledge import export_knowledge_svg, is_knowledge_blueprint
 from export_routes import resolve_export_route
 from export_text import estimate_svg_text_width as _estimate_svg_text_width
 from export_text import wrap_text_to_width as _wrap_text_to_width
@@ -173,8 +174,36 @@ def _arrow_line(x1: int, y1: int, x2: int, y2: int,
     )
 
 
+def _bezier_path_d(x1: float, y1: float, x2: float, y2: float) -> str:
+    """Cubic Bezier path between two points.
+
+    Bias control points horizontally for mostly horizontal flows and vertically
+    for mostly vertical flows so the curve bends along the dominant direction
+    rather than ballooning sideways. Used by the free-flow renderer.
+    """
+    dx = x2 - x1
+    dy = y2 - y1
+    if abs(dx) >= abs(dy):
+        offset = max(40.0, abs(dx) * 0.4)
+        c1x = x1 + (offset if dx >= 0 else -offset)
+        c1y = y1
+        c2x = x2 - (offset if dx >= 0 else -offset)
+        c2y = y2
+    else:
+        offset = max(40.0, abs(dy) * 0.4)
+        c1x = x1
+        c1y = y1 + (offset if dy >= 0 else -offset)
+        c2x = x2
+        c2y = y2 - (offset if dy >= 0 else -offset)
+    return f"M {x1} {y1} C {c1x} {c1y}, {c2x} {c2y}, {x2} {y2}"
+
+
 def _render_arrow_line(sx: int, sy: int, tx: int, ty: int, arrow: dict, colors: dict) -> str:
-    """Draw a straight arrow line with proper style and marker for free-flow layout.
+    """Draw a Bezier-curve arrow with proper style and marker for free-flow layout.
+
+    Free-flow blueprints connect entities across columns, often L→R, where
+    straight lines pile up and force visual crossings. Cubic Bezier curves
+    follow the dominant flow direction and read more naturally.
 
     Relation type color mapping:
       - flows-to: blue (#60A5FA)
@@ -188,22 +217,26 @@ def _render_arrow_line(sx: int, sy: int, tx: int, ty: int, arrow: dict, colors: 
     if rel_type == "flows-to":
         arrow_color = "#60A5FA"  # blue
         marker = "arrow-solid"
-        style = f'stroke="{arrow_color}" stroke-width="1.5"'
+        extra = ""
     elif rel_type == "owned-by":
         arrow_color = "#FBBF24"  # yellow
         marker = "arrow-dot"
-        style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="3,3"'
+        extra = ' stroke-dasharray="3,3"'
     elif arrow.get("dashed") or rel_type == "depends-on":
         arrow_color = colors["arrow_muted"]  # gray
         marker = "arrow-dashed"
-        style = f'stroke="{arrow_color}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"'
+        extra = ' stroke-dasharray="4,4" opacity="0.5"'
     else:
         # supports or other types
         arrow_color = colors["arrow"]  # green
         marker = "arrow-solid"
-        style = f'stroke="{arrow_color}" stroke-width="1.5"'
+        extra = ""
 
-    return f'<line x1="{sx}" y1="{sy}" x2="{tx}" y2="{ty}" {style} marker-end="url(#{marker})"/>'
+    path_d = _bezier_path_d(sx, sy, tx, ty)
+    return (
+        f'<path d="{path_d}" fill="none" stroke="{arrow_color}" '
+        f'stroke-width="1.5"{extra} marker-end="url(#{marker})"/>'
+    )
 
 
 def _arrow_label(mx: int, my: int, label: str,
@@ -2067,7 +2100,15 @@ def export_svg_auto(
     This is the default export: positions systems by category in columns
     (Cloud → Backend → Database) with semantic colors and arrows.
     When systems have ``layer`` fields, uses _layout_layered instead.
+
+    For domain-knowledge blueprints (meta.blueprintType == "domain-knowledge"
+    or non-empty ``library.knowledge``), delegates to the dedicated knowledge
+    renderer in ``export_knowledge``.
     """
+    if is_knowledge_blueprint(blueprint):
+        export_knowledge_svg(blueprint, target)
+        return
+
     route_decision = resolve_export_route(blueprint, requested_route=requested_route)
 
     _export_by_route(
