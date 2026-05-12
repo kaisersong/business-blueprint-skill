@@ -19,7 +19,7 @@ python scripts/business_blueprint/cli.py --export projects/workspace/solution.bl
 
 ## Industry Selection
 
-Choose `--industry` from exactly one of: `"common"`, `"finance"`, `"manufacturing"`, `"retail"`. Select the closest match based on the user's domain and materials; do not invent other values.
+Choose `--industry` from exactly one of: `"common"`, `"finance"`, `"manufacturing"`, `"retail"`, `"cross-border-ecommerce"`. Select the closest match based on the user's domain and materials; do not invent other values.
 
 | Industry | Hints content |
 |----------|-------------|
@@ -27,6 +27,23 @@ Choose `--industry` from exactly one of: `"common"`, `"finance"`, `"manufacturin
 | `finance` | Risk control, credit, compliance, customer profile, etc. |
 | `manufacturing` | Production planning, quality, warehouse, supply chain, etc. |
 | `retail` | Store operations, membership, POS, order fulfillment, etc. |
+| `cross-border-ecommerce` | Domain-knowledge pack for advertising, attribution, creative iteration, platform policy, and cross-border operations |
+
+## Visual Profile Selection
+
+Use `--visual-profile` to avoid making every template look identical. This is a presentation layer only: the JSON IR remains the source of truth and route selection still follows structure.
+
+| Profile | Best fit |
+|---------|----------|
+| `base` | Legacy style and regression comparison |
+| `auto` | Default recommendation when the user wants differentiated output |
+| `executive-clean` | Boardroom, finance, strategy, capability maps |
+| `blueprint-technical` | Architecture-heavy and manufacturing/system maps |
+| `dark-ops` | Dense runtime, operations, and monitoring-style maps |
+| `warm-consulting` | Presales workshops, retail, advisory storytelling |
+| `knowledge-canvas` | Domain-knowledge graphs such as cross-border ecommerce know-how |
+
+Do not imitate external brand visuals directly. Borrow the structural idea of profile-specific visual language, but keep palettes and tokens native to this skill.
 
 ## How to Generate a Blueprint
 
@@ -115,7 +132,7 @@ Write the JSON file directly to the output path. Use this schema:
 ### Step 4: Generate visualizations
 
 ```bash
-python scripts/business_blueprint/cli.py --export <blueprint.json>
+python scripts/business_blueprint/cli.py --export <blueprint.json> --visual-profile auto
 ```
 
 This generates SVG + HTML viewer by default. Use `--format drawio|excalidraw|mermaid` for other formats.
@@ -128,6 +145,7 @@ Treat export view choice as a routing decision, not a styling preference.
 - If there is no standard export template for the requested diagram, fall back to `freeflow`.
 - Do **not** substitute `swimlane`, `matrix`, `product tree`, or other generic views just because they are available.
 - When embedding a blueprint diagram into a report or ad hoc analysis, `freeflow` is the safe default unless the user explicitly asks for a supported standard template.
+- Treat `--visual-profile` as styling only. It must not override the explicit route contract.
 
 ### Step 5: Generate downstream projection
 
@@ -163,6 +181,15 @@ User wants downstream report / slide generation?
 | `--project <path>` | Generate canonical projection JSON for downstream skills |
 | `--export <path>` | Export SVG + HTML viewer (default), or use `--format` for other formats |
 | `--validate <path>` | Validate a blueprint and print JSON results |
+| `--visual-profile <profile>` | Apply differentiated SVG/HTML styling (`base`, `auto`, or a named profile) |
+
+Additional QA utilities:
+
+| Command | Description |
+|---------|-------------|
+| `python scripts/business_blueprint/showcase_matrix.py --output <dir>` | Generate a multi-industry, multi-profile SVG matrix plus `showcase-summary.json` |
+| `python scripts/business_blueprint/validation_matrix.py --output <dir>` | Generate one medium-complexity validation blueprint per industry template, with JSON/SVG/HTML and summary |
+| `python scripts/business_blueprint/render_png.py <svg>` | Optionally render SVG to PNG when CairoSVG is installed; otherwise returns a skipped JSON result |
 
 **Execution**: Run directly as scripts:
 ```bash
@@ -250,11 +277,15 @@ Do not invent route heuristics ad hoc inside a renderer. Route eligibility must 
 - Component border: `rx="8"`, `stroke-width="2"`
 - Region border: `rx="16"`, `stroke-dasharray="8,4"`, `opacity="0.4"`
 - Geometry-sensitive integrity checks must use the numeric thresholds from `evals/export-integrity-thresholds.json`, not prose heuristics.
+- Visual profiles may change palette and metadata only. They must not mutate the blueprint JSON, skip validation, or silently change the selected export route.
 
 ### Output
 - Single HTML file: `{blueprint_stem}.html` alongside the blueprint JSON
 - No external dependencies (except Google Fonts CDN for JetBrains Mono)
 - Opens in any browser, printable to PDF
+- Showcase runs write `showcase-summary.json` and one SVG per industry/profile pair.
+- Template validation runs write `template-validation-summary.json` plus one medium-complexity blueprint package per industry template.
+- PNG output is optional and depends on CairoSVG; absence of CairoSVG is a skipped render, not an export failure.
 
 ## Error Handling
 

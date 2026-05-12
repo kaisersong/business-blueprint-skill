@@ -21,7 +21,7 @@ def test_plan_creates_skeleton(tmp_path: Path) -> None:
         check=True,
     )
     assert blueprint.exists()
-    data = json.loads(blueprint.read_text())
+    data = json.loads(blueprint.read_text(encoding="utf-8"))
     assert data["meta"]["industry"] == "retail"
     assert len(data["context"]["sourceRefs"]) == 1
     assert "云之家" in data["context"]["sourceRefs"][0]["excerpt"]

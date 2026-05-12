@@ -5,11 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from business_blueprint.export_integrity import ExportIntegrityError, check_svg_definition_integrity, check_svg_geometry_integrity
+from business_blueprint.export_integrity import (
+    ExportIntegrityError,
+    check_svg_definition_integrity,
+    check_svg_geometry_integrity,
+    load_export_integrity_thresholds,
+)
 from business_blueprint.export_svg import export_svg_auto
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _taxonomy_categories() -> set[str]:
@@ -28,6 +33,13 @@ def test_check_svg_definition_integrity_reports_missing_marker() -> None:
         {"kind": "defs_reference_missing", "ref": "arrow-solid"}
     ]
     assert result.errors[0]["kind"] in _taxonomy_categories()
+
+
+def test_load_export_integrity_thresholds_reads_repo_level_evals() -> None:
+    thresholds = load_export_integrity_thresholds()
+
+    assert thresholds["minLabelClearancePx"] == 4
+    assert thresholds["cardTextInsetPx"] == 12
 
 
 def test_check_svg_definition_integrity_accepts_defined_marker() -> None:
@@ -74,7 +86,16 @@ def test_export_svg_auto_falls_back_when_primary_route_fails_integrity(monkeypat
         "relations": [],
     }
 
-    def fake_export_by_route(payload, path, *, route, theme, industry=None):
+    def fake_export_by_route(
+        payload,
+        path,
+        *,
+        route,
+        theme,
+        industry=None,
+        visual_profile=None,
+    ):
+        del visual_profile
         if route == "evolution":
             path.write_text(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><line x1="0" y1="0" x2="10" y2="10" marker-end="url(#missing)"/></svg>',
@@ -116,8 +137,16 @@ def test_export_svg_auto_raises_structured_error_when_fallback_also_fails(
         "relations": [],
     }
 
-    def fake_export_by_route(payload, path, *, route, theme, industry=None):
-        del payload, route, theme, industry
+    def fake_export_by_route(
+        payload,
+        path,
+        *,
+        route,
+        theme,
+        industry=None,
+        visual_profile=None,
+    ):
+        del payload, route, theme, industry, visual_profile
         path.write_text(
             '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><line x1="0" y1="0" x2="10" y2="10" marker-end="url(#missing)"/></svg>',
             encoding="utf-8",

@@ -41,8 +41,13 @@ Out of scope (Phase 3): force-directed layout, > 50 entities pagination.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from xml.sax.saxutils import escape
+
+try:
+    from .visual_profiles import apply_visual_profile
+except ImportError:
+    from visual_profiles import apply_visual_profile
 
 
 # ─── Visual tokens ──────────────────────────────────────────────────────────
@@ -57,6 +62,20 @@ KNOWLEDGE_STYLES: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_STYLE = {"fill": "#F3F4F6", "stroke": "#6B7280", "icon": "📦", "header": "其他"}
+
+BASE_KNOWLEDGE_PALETTE = {
+    "bg": "#F7F5F1",
+    "text_main": "#0F172A",
+    "text_sub": "#475569",
+    "cap_fill": KNOWLEDGE_STYLES["strategy"]["fill"],
+    "cap_stroke": KNOWLEDGE_STYLES["strategy"]["stroke"],
+    "sys_fill": KNOWLEDGE_STYLES["metric"]["fill"],
+    "sys_stroke": KNOWLEDGE_STYLES["metric"]["stroke"],
+    "actor_fill": KNOWLEDGE_STYLES["rule"]["fill"],
+    "actor_stroke": KNOWLEDGE_STYLES["rule"]["stroke"],
+    "flow_fill": KNOWLEDGE_STYLES["painPoint"]["fill"],
+    "flow_stroke": KNOWLEDGE_STYLES["painPoint"]["stroke"],
+}
 
 # Two-tier relation rendering:
 #   - "primary" relations carry the main story (solves / measures). Slightly
@@ -151,6 +170,47 @@ def _wrap_text(text: str, max_chars: int = 14) -> list[str]:
     return out[:2]
 
 
+def _profiled_knowledge_styles(
+    visual_profile: str | None,
+    *,
+    theme: str,
+    industry: str | None,
+) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    palette = apply_visual_profile(
+        BASE_KNOWLEDGE_PALETTE,
+        visual_profile,
+        theme=theme,
+        industry=industry,
+        blueprint_type="domain-knowledge",
+    )
+    styles = {key: dict(value) for key, value in KNOWLEDGE_STYLES.items()}
+    if "profile_id" not in palette:
+        return palette, styles
+
+    styles["painPoint"].update(
+        fill=palette.get("flow_fill", styles["painPoint"]["fill"]),
+        stroke=palette.get("flow_stroke", styles["painPoint"]["stroke"]),
+    )
+    styles["strategy"].update(
+        fill=palette.get("cap_fill", styles["strategy"]["fill"]),
+        stroke=palette.get("cap_stroke", styles["strategy"]["stroke"]),
+    )
+    styles["metric"].update(
+        fill=palette.get("sys_fill", styles["metric"]["fill"]),
+        stroke=palette.get("sys_stroke", styles["metric"]["stroke"]),
+    )
+    for key in ("rule", "pitfall"):
+        styles[key].update(
+            fill=palette.get("actor_fill", styles[key]["fill"]),
+            stroke=palette.get("actor_stroke", styles[key]["stroke"]),
+        )
+    styles["practice"].update(
+        fill=palette.get("cap_fill", styles["practice"]["fill"]),
+        stroke=palette.get("cap_stroke", styles["practice"]["stroke"]),
+    )
+    return palette, styles
+
+
 # ─── Node rendering ─────────────────────────────────────────────────────────
 
 def _render_node(
@@ -160,6 +220,7 @@ def _render_node(
     *,
     width: float = NODE_W,
     height: float = NODE_H,
+    styles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> str:
     """Render a knowledge entity card.
 
@@ -172,7 +233,7 @@ def _render_node(
     accent strip in the entity's brand colour to reinforce categorisation.
     """
     entity_type = entity.get("entityType", "")
-    style = KNOWLEDGE_STYLES.get(entity_type, DEFAULT_STYLE)
+    style = (styles or KNOWLEDGE_STYLES).get(entity_type, DEFAULT_STYLE)
     has_questions = _has_self_check_questions(entity)
 
     border_color = "#F59E0B" if has_questions else style["stroke"]
@@ -598,11 +659,22 @@ def _band_card(
 
 # ─── Top-level renderer ─────────────────────────────────────────────────────
 
-def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
+def render_knowledge_svg(
+    blueprint: dict[str, Any],
+    *,
+    theme: str = "light",
+    visual_profile: str | None = None,
+    industry: str | None = None,
+) -> str:
     library = blueprint.get("library", {}) or {}
     knowledge = library.get("knowledge", {}) or {}
     relations = blueprint.get("relations", []) or []
     meta = blueprint.get("meta", {}) or {}
+    palette, knowledge_styles = _profiled_knowledge_styles(
+        visual_profile,
+        theme=theme,
+        industry=industry or meta.get("industry"),
+    )
 
     pp = [e for e in (knowledge.get("painPoints") or []) if isinstance(e, dict)]
     st = [e for e in (knowledge.get("strategies") or []) if isinstance(e, dict)]
@@ -695,7 +767,7 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
         f'width="{page_w}" height="{canvas_h}" '
         f'font-family="system-ui, -apple-system, sans-serif">',
         _arrow_markers(),
-        f'<rect width="{page_w}" height="{canvas_h}" fill="#F7F5F1"/>',
+        f'<rect width="{page_w}" height="{canvas_h}" fill="{palette["bg"]}"/>',
     ]
 
     # Title
@@ -703,11 +775,11 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
     intent = meta.get("detectedIntent", "")
     parts.append(
         f'<text x="{PAD}" y="{title_top + 36}" font-size="22" font-weight="700" '
-        f'fill="#0F172A">{_esc(title)}</text>'
+        f'fill="{palette["text_main"]}">{_esc(title)}</text>'
     )
     if intent:
         parts.append(
-            f'<text x="{PAD}" y="{title_top + 62}" font-size="13" fill="#475569">'
+            f'<text x="{PAD}" y="{title_top + 62}" font-size="13" fill="{palette["text_sub"]}">'
             f'意图：{_esc(intent[:96])}</text>'
         )
 
@@ -715,15 +787,15 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
     parts.append(_band_card(
         rules_band_x, rules_card_y, rules_band_w, rules_card_h,
         "⚖ 平台规则与政策（约束策略）",
-        KNOWLEDGE_STYLES["rule"]["stroke"],
-        KNOWLEDGE_STYLES["rule"]["fill"],
+        knowledge_styles["rule"]["stroke"],
+        knowledge_styles["rule"]["fill"],
     ))
 
     # Main column headers — typography only, no underline (cleaner)
     for col_x, label, color in (
-        (col_pp_x, "⚠ 痛点", KNOWLEDGE_STYLES["painPoint"]["stroke"]),
-        (col_st_x, "💡 策略", KNOWLEDGE_STYLES["strategy"]["stroke"]),
-        (col_mt_x, "📊 指标", KNOWLEDGE_STYLES["metric"]["stroke"]),
+        (col_pp_x, "⚠ 痛点", knowledge_styles["painPoint"]["stroke"]),
+        (col_st_x, "💡 策略", knowledge_styles["strategy"]["stroke"]),
+        (col_mt_x, "📊 指标", knowledge_styles["metric"]["stroke"]),
     ):
         parts.append(
             f'<text x="{col_x}" y="{main_header_y + 22}" font-size="14" '
@@ -734,14 +806,14 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
     parts.append(_band_card(
         practices_band_x, bottom_band_y, practices_band_w, bottom_band_h,
         "✅ 最佳实践（支撑策略）",
-        KNOWLEDGE_STYLES["practice"]["stroke"],
-        KNOWLEDGE_STYLES["practice"]["fill"],
+        knowledge_styles["practice"]["stroke"],
+        knowledge_styles["practice"]["fill"],
     ))
     parts.append(_band_card(
         pitfalls_band_x, bottom_band_y, pitfalls_band_w, bottom_band_h,
         "❌ 常见误区（导致痛点）",
-        KNOWLEDGE_STYLES["pitfall"]["stroke"],
-        KNOWLEDGE_STYLES["pitfall"]["fill"],
+        knowledge_styles["pitfall"]["stroke"],
+        knowledge_styles["pitfall"]["fill"],
     ))
 
     # Extras card (user-defined entity types)
@@ -760,13 +832,13 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
     # Nodes (main triptych — full size)
     for _, p in pp_layout:
         x, y, w, h = rects[p["id"]]
-        parts.append(_render_node(p, x, y, width=w, height=h))
+        parts.append(_render_node(p, x, y, width=w, height=h, styles=knowledge_styles))
     for _, s in st_layout:
         x, y, w, h = rects[s["id"]]
-        parts.append(_render_node(s, x, y, width=w, height=h))
+        parts.append(_render_node(s, x, y, width=w, height=h, styles=knowledge_styles))
     for _, m in mt_layout:
         x, y, w, h = rects[m["id"]]
-        parts.append(_render_node(m, x, y, width=w, height=h))
+        parts.append(_render_node(m, x, y, width=w, height=h, styles=knowledge_styles))
 
     # Nodes (band — smaller)
     for ent in rl + pr + pf + extras:
@@ -774,15 +846,30 @@ def render_knowledge_svg(blueprint: dict[str, Any]) -> str:
         if not isinstance(eid, str) or eid not in rects:
             continue
         x, y, w, h = rects[eid]
-        parts.append(_render_node(ent, x, y, width=w, height=h))
+        parts.append(_render_node(ent, x, y, width=w, height=h, styles=knowledge_styles))
 
     parts.append('</svg>')
     return "".join(parts)
 
 
-def export_knowledge_svg(blueprint: dict[str, Any], target: Path) -> None:
+def export_knowledge_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    *,
+    theme: str = "light",
+    visual_profile: str | None = None,
+    industry: str | None = None,
+) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render_knowledge_svg(blueprint), encoding="utf-8")
+    target.write_text(
+        render_knowledge_svg(
+            blueprint,
+            theme=theme,
+            visual_profile=visual_profile,
+            industry=industry,
+        ),
+        encoding="utf-8",
+    )
 
 
 def is_knowledge_blueprint(blueprint: dict[str, Any]) -> bool:

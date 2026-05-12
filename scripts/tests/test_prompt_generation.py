@@ -99,9 +99,15 @@ def test_history_preserved(tmp_path: Path) -> None:
 
 def test_export_config_reflects_params(tmp_path: Path) -> None:
     prompt_path = generate_prompt_file(
-        SAMPLE_BLUEPRINT, tmp_path, theme="dark", fmt="drawio"
+        SAMPLE_BLUEPRINT,
+        tmp_path,
+        theme="dark",
+        fmt="drawio",
+        visual_profile="warm-consulting",
     )
     content = prompt_path.read_text(encoding="utf-8")
 
     assert "**Theme**: dark" in content
     assert "**Format**: drawio" in content
+    assert "**Visual Profile**: warm-consulting" in content
+    assert 'visual_profile: "warm-consulting"' in content

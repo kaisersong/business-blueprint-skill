@@ -25,6 +25,7 @@ def generate_prompt_file(
     *,
     theme: str = "light",
     fmt: str = "svg",
+    visual_profile: str = "base",
 ) -> Path:
     """Write a timestamped audit-prompt file and return its path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,6 +51,7 @@ def generate_prompt_file(
             n_flow_steps=len(lib.get("flowSteps", [])),
             theme=theme,
             fmt=fmt,
+            visual_profile=visual_profile,
             timestamp=timestamp,
             cli_args=sys.argv.copy(),
         ),
@@ -70,6 +72,7 @@ def _build_content(
     n_flow_steps: int,
     theme: str,
     fmt: str,
+    visual_profile: str,
     timestamp: str,
     cli_args: list[str],
 ) -> str:
@@ -98,6 +101,7 @@ def _build_content(
 
 - **Format**: {fmt}
 - **Theme**: {theme}
+- **Visual Profile**: {visual_profile}
 
 ---
 
@@ -105,6 +109,7 @@ def _build_content(
 
 blueprint_hash: sha256:{blueprint_hash}
 schema_version: "{schema_version}"
+visual_profile: "{visual_profile}"
 generated_at: "{generated_at}"
 timestamp: "{timestamp}"
 cli_args:

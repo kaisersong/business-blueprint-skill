@@ -16,19 +16,32 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
-from export_knowledge import export_knowledge_svg, is_knowledge_blueprint
-from export_routes import resolve_export_route
-from export_text import estimate_svg_text_width as _estimate_svg_text_width
-from export_text import wrap_text_to_width as _wrap_text_to_width
-from export_text import wrap_timeline_text as _wrap_timeline_text
-from export_theme import ARROW_STYLES, C_DARK, C_LIGHT, INDUSTRY_THEMES, resolve_arrow_style as _resolve_arrow_style
-from export_theme import resolve_system_colors as _resolve_system_colors
-from export_theme import resolve_theme as _resolve_theme
-
-# Import IntentResolver + RuleEngine for layer assignment
-from intent_resolver import IntentResolver
-from rule_engine import RuleEngine, load_perspective, load_overlay
+try:  # Package imports when used as ``python -m business_blueprint.cli``.
+    from .export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
+    from .export_knowledge import export_knowledge_svg, is_knowledge_blueprint
+    from .export_routes import resolve_export_route
+    from .export_text import estimate_svg_text_width as _estimate_svg_text_width
+    from .export_text import wrap_text_to_width as _wrap_text_to_width
+    from .export_text import wrap_timeline_text as _wrap_timeline_text
+    from .export_theme import ARROW_STYLES, C_DARK, C_LIGHT, INDUSTRY_THEMES, resolve_arrow_style as _resolve_arrow_style
+    from .export_theme import resolve_system_colors as _resolve_system_colors
+    from .export_theme import resolve_theme as _resolve_theme
+    from .intent_resolver import IntentResolver
+    from .rule_engine import RuleEngine, load_perspective, load_overlay
+    from .visual_profiles import resolve_visual_profile
+except ImportError:  # Direct script execution from the skill repository.
+    from export_integrity import ExportIntegrityError, ExportIntegrityFailure, check_svg_integrity
+    from export_knowledge import export_knowledge_svg, is_knowledge_blueprint
+    from export_routes import resolve_export_route
+    from export_text import estimate_svg_text_width as _estimate_svg_text_width
+    from export_text import wrap_text_to_width as _wrap_text_to_width
+    from export_text import wrap_timeline_text as _wrap_timeline_text
+    from export_theme import ARROW_STYLES, C_DARK, C_LIGHT, INDUSTRY_THEMES, resolve_arrow_style as _resolve_arrow_style
+    from export_theme import resolve_system_colors as _resolve_system_colors
+    from export_theme import resolve_theme as _resolve_theme
+    from intent_resolver import IntentResolver
+    from rule_engine import RuleEngine, load_perspective, load_overlay
+    from visual_profiles import resolve_visual_profile
 
 
 # ─── Design tokens ───────────────────────────────────────────────
@@ -73,6 +86,43 @@ POSTER_LAYER_PALETTES: dict[str, list[dict[str, str]]] = {
 
 def _esc(s: str) -> str:
     return escape(str(s))
+
+
+def _visual_profile_comment(
+    visual_profile: str | None,
+    *,
+    industry: str | None,
+    blueprint_type: str | None,
+    theme: str,
+) -> str:
+    profile = resolve_visual_profile(
+        visual_profile,
+        industry=industry,
+        blueprint_type=blueprint_type,
+        theme=theme,
+    )
+    profile_id = profile.profile_id if profile else "base"
+    return f"<!-- visual-profile: {profile_id} -->"
+
+
+def _inject_visual_profile_comment(
+    target: Path,
+    visual_profile: str | None,
+    *,
+    industry: str | None,
+    blueprint_type: str | None,
+    theme: str,
+) -> None:
+    text = target.read_text(encoding="utf-8")
+    comment = _visual_profile_comment(
+        visual_profile,
+        industry=industry,
+        blueprint_type=blueprint_type,
+        theme=theme,
+    )
+    if comment in text:
+        return
+    target.write_text(text.replace(">", f">\n{comment}", 1), encoding="utf-8")
 
 
 def _poster_layer_palette(theme: str) -> list[dict[str, str]]:
@@ -775,7 +825,8 @@ def _svg_defs(colors: dict | None = None, theme: str = "light") -> str:
 
 # ─── Main export ─────────────────────────────────────────────────
 def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light",
-               industry: str | None = None) -> None:
+               industry: str | None = None,
+               visual_profile: str | None = None) -> None:
     """Export architecture diagram to SVG.
 
     Args:
@@ -786,7 +837,13 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light",
     """
     if industry is None:
         industry = blueprint.get("meta", {}).get("industry", "") or None
-    colors = _resolve_theme(theme, industry=industry)
+    blueprint_type = blueprint.get("meta", {}).get("blueprintType")
+    colors = _resolve_theme(
+        theme,
+        industry=industry,
+        visual_profile=visual_profile,
+        blueprint_type=blueprint_type,
+    )
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry_label = industry or blueprint.get("meta", {}).get("industry", "")
     subtitle = f"行业：{industry_label}" if industry_label else "应用架构"
@@ -807,6 +864,12 @@ def export_svg(blueprint: dict[str, Any], target: Path, theme: str = "light",
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
         f'viewBox="0 0 {w} {h}" '
         f'font-family="{FONT}">',
+        _visual_profile_comment(
+            visual_profile,
+            industry=industry,
+            blueprint_type=blueprint_type,
+            theme=theme,
+        ),
         _svg_defs(colors=colors, theme=theme),
         bg_rect,
         _title_svg(title, subtitle, w, colors=colors),
@@ -1672,8 +1735,8 @@ def _check_layout_quality(layout: dict[str, Any], blueprint: dict[str, Any]) -> 
             issues.append(f"Node {sid} near title: y={n['y']} < {title_bottom + 10}")
 
     # 5. Canvas size
-    if layout["width"] < 1000:
-        issues.append(f"Canvas too narrow: {layout['width']}px < 1000px")
+    if layout["width"] < 960:
+        issues.append(f"Canvas too narrow: {layout['width']}px < 960px")
 
     # 6. Arrow completeness
     flow_steps = blueprint.get("library", {}).get("flowSteps", [])
@@ -1714,12 +1777,19 @@ def _render_free_flow_svg(
     subtitle: str,
     theme: str = "dark",
     blueprint: dict[str, Any] | None = None,
+    visual_profile: str | None = None,
 ) -> str:
     """Render a free-flow layout dict into an SVG string."""
     if blueprint is None:
         blueprint = {}
     industry = blueprint.get("meta", {}).get("industry", "") or None
-    colors = _resolve_theme(theme, industry=industry)
+    blueprint_type = blueprint.get("meta", {}).get("blueprintType")
+    colors = _resolve_theme(
+        theme,
+        industry=industry,
+        visual_profile=visual_profile,
+        blueprint_type=blueprint_type,
+    )
     nodes = layout["nodes"]
     arrows = layout["arrows"]
     w, h = layout["width"], layout["height"]
@@ -1729,6 +1799,12 @@ def _render_free_flow_svg(
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
         f'width="{w}" height="{h}" font-family="{FONT}">',
+        _visual_profile_comment(
+            visual_profile,
+            industry=industry,
+            blueprint_type=blueprint_type,
+            theme=theme,
+        ),
         _svg_defs(colors=colors, theme=theme),
     ]
 
@@ -2094,6 +2170,7 @@ def export_svg_auto(
     theme: str = "dark",
     industry: str | None = None,
     requested_route: str | None = None,
+    visual_profile: str | None = None,
 ) -> None:
     """Export using free-flow L→R data flow layout.
 
@@ -2106,7 +2183,20 @@ def export_svg_auto(
     renderer in ``export_knowledge``.
     """
     if is_knowledge_blueprint(blueprint):
-        export_knowledge_svg(blueprint, target)
+        export_knowledge_svg(
+            blueprint,
+            target,
+            theme=theme,
+            visual_profile=visual_profile,
+            industry=industry or blueprint.get("meta", {}).get("industry"),
+        )
+        _inject_visual_profile_comment(
+            target,
+            visual_profile,
+            industry=industry or blueprint.get("meta", {}).get("industry"),
+            blueprint_type="domain-knowledge",
+            theme=theme,
+        )
         return
 
     route_decision = resolve_export_route(blueprint, requested_route=requested_route)
@@ -2117,6 +2207,14 @@ def export_svg_auto(
         route=route_decision.route,
         theme=theme,
         industry=industry,
+        visual_profile=visual_profile,
+    )
+    _inject_visual_profile_comment(
+        target,
+        visual_profile,
+        industry=industry or blueprint.get("meta", {}).get("industry"),
+        blueprint_type=blueprint.get("meta", {}).get("blueprintType"),
+        theme=theme,
     )
     integrity = check_svg_integrity(target.read_text(encoding="utf-8"))
     if not integrity.errors:
@@ -2129,6 +2227,14 @@ def export_svg_auto(
             route=route_decision.fallback_route,
             theme=theme,
             industry=industry,
+            visual_profile=visual_profile,
+        )
+        _inject_visual_profile_comment(
+            target,
+            visual_profile,
+            industry=industry or blueprint.get("meta", {}).get("industry"),
+            blueprint_type=blueprint.get("meta", {}).get("blueprintType"),
+            theme=theme,
         )
         fallback_integrity = check_svg_integrity(target.read_text(encoding="utf-8"))
         if not fallback_integrity.errors:
@@ -2160,6 +2266,7 @@ def _export_by_route(
     route: str,
     theme: str,
     industry: str | None = None,
+    visual_profile: str | None = None,
 ) -> None:
     # ─── Step 1: Intent Resolution + Layer Assignment ───
     # Apply IntentResolver + RuleEngine to assign layer to each system
@@ -2189,16 +2296,16 @@ def _export_by_route(
 
     # ─── Step 2: Route-specific Export ───
     if route == "evolution":
-        export_evolution_timeline_svg(blueprint, target, theme=theme)
+        export_evolution_timeline_svg(blueprint, target, theme=theme, visual_profile=visual_profile)
         return
     if route == "swimlane":
-        export_swimlane_flow_svg(blueprint, target, theme=theme)
+        export_swimlane_flow_svg(blueprint, target, theme=theme, visual_profile=visual_profile)
         return
     if route == "hierarchy":
-        export_product_tree_svg(blueprint, target, theme=theme)
+        export_product_tree_svg(blueprint, target, theme=theme, visual_profile=visual_profile)
         return
     if route == "poster":
-        export_layer_poster_svg(blueprint, target, theme=theme)
+        export_layer_poster_svg(blueprint, target, theme=theme, visual_profile=visual_profile)
         return
 
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
@@ -2220,14 +2327,27 @@ def _export_by_route(
         print(f"  Layout quality issues ({len(issues)}):")
         for iss in issues:
             print(f"    - {iss}")
-    svg = _render_free_flow_svg(layout, title, subtitle, theme=theme, blueprint=blueprint)
+    svg = _render_free_flow_svg(
+        layout,
+        title,
+        subtitle,
+        theme=theme,
+        blueprint=blueprint,
+        visual_profile=visual_profile,
+    )
     target.write_text(svg, encoding="utf-8")
 
 
 # ─── Export: Product Tree / Genealogy ────────────────────────────
-def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
+def export_product_tree_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
     """Product family tree: root → market segments → products with capability badges."""
-    colors = _resolve_theme(theme)
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    colors = _resolve_theme(theme, industry=industry, visual_profile=visual_profile)
     title = blueprint.get("meta", {}).get("title", "Product Family")
     lib = blueprint.get("library", {})
     systems = lib.get("systems", [])
@@ -2496,8 +2616,14 @@ def export_product_tree_svg(blueprint: dict[str, Any], target: Path, theme: str 
 
 
 # ─── Export: Capability Matrix ───────────────────────────────────
-def export_matrix_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
-    colors = _resolve_theme(theme)
+def export_matrix_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    colors = _resolve_theme(theme, industry=industry, visual_profile=visual_profile)
     """Matrix view: products as rows, capabilities as columns, coverage as cells."""
     title = blueprint.get("meta", {}).get("title", "Product Family")
     lib = blueprint.get("library", {})
@@ -2656,8 +2782,14 @@ def export_matrix_svg(blueprint: dict[str, Any], target: Path, theme: str = "lig
 
 
 # ─── Export: Capability Map ──────────────────────────────────────
-def export_capability_map_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
-    colors = _resolve_theme(theme)
+def export_capability_map_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    colors = _resolve_theme(theme, industry=industry, visual_profile=visual_profile)
     """Capability map: grouped cards showing business capabilities and their supporting systems."""
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry = blueprint.get("meta", {}).get("industry", "")
@@ -2798,8 +2930,14 @@ def export_capability_map_svg(blueprint: dict[str, Any], target: Path, theme: st
 
 
 # ─── Export: Swimlane Flow ───────────────────────────────────────
-def export_swimlane_flow_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
-    colors = _resolve_theme(theme)
+def export_swimlane_flow_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    colors = _resolve_theme(theme, industry=industry, visual_profile=visual_profile)
     """Swimlane flow diagram: actors as lanes, flow steps as connected cards."""
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     industry = blueprint.get("meta", {}).get("industry", "")
@@ -3073,10 +3211,15 @@ def _compact_swimlane_tag(label: str) -> str:
         "AI数据底座": "数据底座",
     }
     return compact_map.get(label, label)
-def export_evolution_timeline_svg(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
+def export_evolution_timeline_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
     """Timeline-style evolution diagram for date-driven product changes."""
     industry = blueprint.get("meta", {}).get("industry", "") or None
-    colors = _resolve_theme(theme, industry=industry)
+    colors = _resolve_theme(theme, industry=industry, visual_profile=visual_profile)
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     lib = blueprint.get("library", {})
     flow_steps = list(lib.get("flowSteps", []))
@@ -3370,9 +3513,15 @@ def _infer_layer_from_system_name(name: str, category: str | None = None) -> str
     return "应用服务层"
 
 
-def export_layer_poster_svg(blueprint: dict[str, Any], target: Path, theme: str = "dark") -> None:
+def export_layer_poster_svg(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "dark",
+    visual_profile: str | None = None,
+) -> None:
     """Poster-style layered product blueprint view for product architecture storytelling."""
-    colors = _resolve_theme(theme, blueprint.get("meta", {}).get("industry", "") or None)
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    colors = _resolve_theme(theme, industry, visual_profile=visual_profile)
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     systems = blueprint.get("library", {}).get("systems", [])
     if not systems:

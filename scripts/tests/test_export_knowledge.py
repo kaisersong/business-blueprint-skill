@@ -57,6 +57,17 @@ def test_render_produces_svg_root():
     assert svg.rstrip().endswith("</svg>")
 
 
+def test_render_accepts_visual_profile_palette():
+    svg = render_knowledge_svg(
+        _sample_blueprint(),
+        theme="light",
+        visual_profile="knowledge-canvas",
+        industry="cross-border-ecommerce",
+    )
+    assert "#FAFAF4" in svg
+    assert "#15803D" in svg
+
+
 def test_render_includes_all_entity_names():
     svg = render_knowledge_svg(_sample_blueprint())
     assert "ROI 不稳" in svg

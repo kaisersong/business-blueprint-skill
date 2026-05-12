@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from .visual_profiles import apply_visual_profile
+except ImportError:
+    from visual_profiles import apply_visual_profile
+
 
 # Light theme (default) — warm, professional, matches DESIGN.md
 C_LIGHT = {
@@ -122,20 +127,43 @@ _ARROW_STYLES_LIGHT: dict[str, dict[str, str]] = {
 }
 
 
-def resolve_theme(name: str = "light", industry: str | None = None) -> dict:
+def resolve_theme(
+    name: str = "light",
+    industry: str | None = None,
+    visual_profile: str | None = None,
+    blueprint_type: str | None = None,
+) -> dict:
     """Return the color palette for the given theme, with optional industry accent."""
     base = C_DARK if name == "dark" else C_LIGHT
     if not industry or industry == "common":
-        return base
+        return apply_visual_profile(
+            base,
+            visual_profile,
+            theme=name,
+            industry=industry,
+            blueprint_type=blueprint_type,
+        )
     overrides = INDUSTRY_THEMES.get(industry)
     if not overrides:
-        return base
+        return apply_visual_profile(
+            base,
+            visual_profile,
+            theme=name,
+            industry=industry,
+            blueprint_type=blueprint_type,
+        )
     result = dict(base)
     accent = overrides["accent"]
     result["cap_stroke"] = accent
     result["actor_stroke"] = accent
     result["arrow"] = accent
-    return result
+    return apply_visual_profile(
+        result,
+        visual_profile,
+        theme=name,
+        industry=industry,
+        blueprint_type=blueprint_type,
+    )
 
 
 def resolve_system_colors(category: str | None, theme: str) -> tuple[str, str]:

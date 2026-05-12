@@ -91,6 +91,8 @@ cd kai-business-blueprint && pip install -e .
 | `--refine <blueprint.json>` | 基于自然语言反馈优化已有蓝图，配合 `--feedback "..."`。LLM 输出结构化 diff，自动应用产生新版本 |
 | `--from <文件>` | 从指定文件读取源材料 |
 | `--industry <包名>` | 指定行业模板包（`common`、`finance`、`manufacturing`、`retail`、**`cross-border-ecommerce`**） |
+| `--theme <dark|light>` | 输出主题色，默认 `dark` |
+| `--visual-profile <profile>` | 应用差异化 SVG/HTML 视觉风格：base、auto、executive-clean、blueprint-technical、dark-ops、warm-consulting、knowledge-canvas |
 
 ### Domain-Knowledge 蓝图（v0.14 新增）
 
@@ -107,8 +109,12 @@ cd kai-business-blueprint && pip install -e .
 ### 导出质量契约
 
 - 导出路由现在是显式决策：只有当蓝图结构明确匹配某个专用视图时才会切过去，否则默认停在 `freeflow`。
+- 视觉风格是显式样式叠加，不是路由选择。需要差异化效果时用 `--visual-profile auto`，需要旧版对照时用 `base`。
 - SVG 输出在落盘前会做结构完整性检查，先覆盖缺失 defs 引用和基础画布越界。
 - 导出阈值和缺陷分类放在 [`evals/`](evals) 下，用 machine-readable 资产支撑 route 和 integrity 行为，而不是只靠文字说明。
+- `business_blueprint.showcase_matrix` 可生成多行业、多视觉 profile 的 SVG 对比矩阵，并写出 `showcase-summary.json`。
+- `business_blueprint.validation_matrix` 可为每个行业模板生成一个中等复杂度 JSON/SVG/HTML 验证包，并写出 `template-validation-summary.json`。
+- `business_blueprint.render_png` 提供可选 PNG 渲染探针；只有安装 CairoSVG 时才渲染，否则返回 skipped JSON，不算导出失败。
 - Windows / 终端支持是收敛范围的：推荐统一走 `python -m business_blueprint.cli`，遇到编码敏感场景时显式设置 `PYTHONIOENCODING=utf-8`。
 
 ### 典型工作流
@@ -122,7 +128,22 @@ business-blueprint --plan "ERP 支持 POS 系统..." --from meeting-notes.md --i
 business-blueprint --generate solution.blueprint.json
 
 # 第三步：导出图表
-business-blueprint --export solution.blueprint.json
+business-blueprint --export solution.blueprint.json --visual-profile auto
+```
+
+**对比多种视觉风格：**
+```bash
+python scripts/business_blueprint/showcase_matrix.py --output projects/workspace/showcase --industries common,retail --visual-profiles executive-clean,dark-ops,warm-consulting
+```
+
+**每个模板生成一个中等复杂度验证蓝图：**
+```bash
+python scripts/business_blueprint/validation_matrix.py --output projects/workspace/template-validation
+```
+
+**可选 PNG 检查：**
+```bash
+python scripts/business_blueprint/render_png.py projects/workspace/showcase/common/executive-clean/solution.svg
 ```
 
 **编辑现有蓝图：**
@@ -168,6 +189,7 @@ SVG 导出渲染三层架构图：
 - **语义箭头**——4 种类型，各有独立颜色/标记：`支撑`（绿色实线）、`依赖`（灰色虚线）、`数据流`（蓝色实线）、`负责`（黄色点线）
 - **语义节点形状**——菱形用于流程步骤、左侧色条用于系统、圆角矩形用于能力、药丸形用于角色
 - **行业主题**——零售（橙色）、金融（蓝色）、制造（灰色）叠加色
+- **视觉 profile**——面向高管、技术蓝图、运营、咨询和知识画布的可选样式叠加
 
 层高度通过两遍布局动态计算：第一遍放置所有节点，第二遍计算精确的内容高度，确保角色、多行流程、堆叠的能力永远不会溢出。
 
@@ -195,6 +217,10 @@ kai-business-blueprint/
 │   ├── export_drawio.py          # draw.io 导出器
 │   ├── export_excalidraw.py      # Excalidraw 导出器
 │   ├── export_mermaid.py         # Mermaid 导出器
+│   ├── visual_profiles.py        # 业务视觉 profile 注册表与调色板叠加
+│   ├── showcase_matrix.py        # 多行业/profile SVG showcase 生成器
+│   ├── validation_matrix.py      # 每个模板一个中等复杂度验证蓝图生成器
+│   ├── render_png.py             # 可选 CairoSVG PNG 渲染探针
 │   ├── templates/                # 行业包（通用、零售、金融、制造）
 │   ├── assets/                   # viewer.html 模板
 │   └── specs/                    # 蓝图 schema 定义
@@ -281,6 +307,8 @@ for rel in bp["relations"]:
 ---
 
 ## 版本日志
+
+**v0.15.0** — 视觉 profile 与 showcase 加固：新增 `executive-clean`、`blueprint-technical`、`dark-ops`、`warm-consulting`、`knowledge-canvas` 五种 SVG/HTML 视觉风格，并支持 `--visual-profile auto`，避免不同蓝图模板都退化成同一种样式。新增 showcase matrix 生成器、每模板中等复杂度验证生成器、可选 CairoSVG PNG 渲染探针、Windows UTF-8 模板读取修复，并补齐 profile 元数据、prompt 审计记录、CLI 透传、showcase summary、validation summary、PNG skip/render 行为的回归测试。
 
 **v0.14.0** — Domain-knowledge 蓝图：在原有架构蓝图（capabilities / actors / flowSteps / systems）之外，新增 know-how pitch 蓝图类型——痛点、策略、规则、指标、最佳实践、常见误区六类实体。pipeline 内置三大质量机制：**澄清回合**（validator 强制 ≥3 条指向具体实体的 clarifyRequests）、**实体自检**（每个实体可声明自身不确定项，渲染为琥珀色 `?` 标记）、**`--refine` 命令**（LLM 输出结构化 diff 自动应用产生新版本）。新增 `cross-border-ecommerce` 行业模板（深度验证），retail / finance / manufacturing 模板补充 `knowledgeHints`（标记 `template-only-not-domain-validated`，AI 使用时必须向用户披露此限制）。知识图渲染采用三段式布局（规则 band / 痛点-策略-指标三联画 / 实践-误区胶囊），按 `solves` / `measures` 行对齐，跨区使用三阶贝塞尔曲线，关系分三档透明度避免视觉过载。Free-flow 渲染器同步切换为贝塞尔曲线。新增 67 条单元测试（共 85 条），锁定 v2 行为。
 

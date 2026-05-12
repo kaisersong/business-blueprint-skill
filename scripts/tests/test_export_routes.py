@@ -6,7 +6,7 @@ from pathlib import Path
 from business_blueprint.export_routes import resolve_export_route
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_fixture(name: str) -> dict:

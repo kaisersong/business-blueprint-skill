@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from export_svg import FONT, FONT_MONO, _resolve_theme
+try:
+    from .export_svg import FONT, FONT_MONO, _resolve_theme
+except ImportError:
+    from export_svg import FONT, FONT_MONO, _resolve_theme
 
 
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "html-viewer.html"
@@ -40,7 +43,12 @@ def _esc(s: str) -> str:
     return escape(str(s))
 
 
-def _build_architecture_svg(blueprint: dict[str, Any], colors: dict, theme: str) -> str:
+def _build_architecture_svg(
+    blueprint: dict[str, Any],
+    colors: dict,
+    theme: str,
+    visual_profile: str | None = None,
+) -> str:
     """Build architecture SVG for the HTML viewer.
 
     Uses free-flow L→R data flow layout by default.
@@ -48,12 +56,15 @@ def _build_architecture_svg(blueprint: dict[str, Any], colors: dict, theme: str)
     freeflow rather than silently switching to another generic view type.
     """
     import tempfile
-    from export_svg import export_svg_auto
+    try:
+        from .export_svg import export_svg_auto
+    except ImportError:
+        from export_svg import export_svg_auto
 
     industry = blueprint.get("meta", {}).get("industry", "") or None
     with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as f:
         tmp_path = Path(f.name)
-    export_svg_auto(blueprint, tmp_path, theme=theme, industry=industry)
+    export_svg_auto(blueprint, tmp_path, theme=theme, industry=industry, visual_profile=visual_profile)
     result = tmp_path.read_text(encoding="utf-8")
     tmp_path.unlink()
     return result
@@ -198,20 +209,35 @@ def _build_description_section(blueprint: dict[str, Any]) -> str:
     </div>"""
 
 
-def export_html_viewer(blueprint: dict[str, Any], target: Path, theme: str = "light") -> None:
+def export_html_viewer(
+    blueprint: dict[str, Any],
+    target: Path,
+    theme: str = "light",
+    visual_profile: str | None = None,
+) -> None:
     """Generate a self-contained HTML viewer with inline SVG.
 
     Branches on ``meta.blueprintType``:
     - ``architecture`` (default): standard summary cards (Systems/Capabilities/...)
     - ``domain-knowledge``: knowledge summary cards (痛点/策略/...) + clarifyRequests
     """
-    from export_knowledge import is_knowledge_blueprint
+    try:
+        from .export_knowledge import is_knowledge_blueprint
+    except ImportError:
+        from export_knowledge import is_knowledge_blueprint
 
-    colors = _resolve_theme(theme)
+    industry = blueprint.get("meta", {}).get("industry", "") or None
+    blueprint_type = blueprint.get("meta", {}).get("blueprintType")
+    colors = _resolve_theme(
+        theme,
+        industry=industry,
+        visual_profile=visual_profile,
+        blueprint_type=blueprint_type,
+    )
     title = blueprint.get("meta", {}).get("title", "Business Blueprint")
     lib = blueprint.get("library", {})
 
-    svg_content = _build_architecture_svg(blueprint, colors, theme)
+    svg_content = _build_architecture_svg(blueprint, colors, theme, visual_profile=visual_profile)
 
     if is_knowledge_blueprint(blueprint):
         summary_cards = _build_knowledge_summary_cards(blueprint)

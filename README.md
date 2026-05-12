@@ -93,6 +93,7 @@ cd kai-business-blueprint && pip install -e .
 | `--from <file>` | Read source material from file path |
 | `--industry <pack>` | Apply industry template pack (common, finance, manufacturing, retail, **cross-border-ecommerce**) |
 | `--theme <dark|light>` | Color theme for output (default: dark) |
+| `--visual-profile <profile>` | Apply differentiated SVG/HTML styling: base, auto, executive-clean, blueprint-technical, dark-ops, warm-consulting, knowledge-canvas |
 | `--format <fmt>` | Export format: svg, drawio, excalidraw, mermaid, all |
 
 ### Domain-Knowledge Blueprints (v0.14)
@@ -110,8 +111,12 @@ The knowledge SVG renderer uses a three-band layout: rules across the top, a `pa
 ### Export Quality Contracts
 
 - Export routing is explicit: specialized views are only used when the blueprint structure clearly matches them; otherwise the exporter stays on `freeflow`.
+- Visual profiles are explicit styling overlays, not route selectors. Use `--visual-profile auto` for differentiated output and `base` for legacy comparison.
 - SVG output now runs structural integrity checks for missing defs references and basic canvas overflow before an artifact is accepted.
 - Export thresholds and defect taxonomy live under [`evals/`](evals), so route and integrity behavior are backed by machine-readable fixtures rather than prose only.
+- Showcase matrix generation lives in `business_blueprint.showcase_matrix` and writes one SVG per industry/profile pair plus `showcase-summary.json`.
+- Template validation matrix generation lives in `business_blueprint.validation_matrix` and writes one medium-complexity JSON/SVG/HTML package per industry template plus `template-validation-summary.json`.
+- Optional PNG rendering lives in `business_blueprint.render_png`; it uses CairoSVG only when installed and reports a skipped render otherwise.
 - Windows/terminal support is intentionally scoped: the canonical path is `python -m business_blueprint.cli`, and encoding-sensitive runs should use `PYTHONIOENCODING=utf-8` when needed.
 
 ### Typical Workflows
@@ -125,7 +130,22 @@ business-blueprint --plan "ERP supports POS system..." --from meeting-notes.md -
 business-blueprint --generate solution.blueprint.json
 
 # Step 3: export diagrams
-business-blueprint --export solution.blueprint.json
+business-blueprint --export solution.blueprint.json --visual-profile auto
+```
+
+**Compare visual profiles:**
+```bash
+python scripts/business_blueprint/showcase_matrix.py --output projects/workspace/showcase --industries common,retail --visual-profiles executive-clean,dark-ops,warm-consulting
+```
+
+**Validate one medium blueprint per template:**
+```bash
+python scripts/business_blueprint/validation_matrix.py --output projects/workspace/template-validation
+```
+
+**Optional PNG check:**
+```bash
+python scripts/business_blueprint/render_png.py projects/workspace/showcase/common/executive-clean/solution.svg
 ```
 
 **Edit existing blueprint:**
@@ -170,6 +190,7 @@ The SVG export renders a free-flow L→R architecture diagram:
 - **Semantic arrows** — 4 types with distinct colors/markers: `supports` (green solid), `depends-on` (gray dashed), `flows-to` (blue solid), `owned-by` (yellow dotted)
 - **Semantic node shapes** — diamond for flow steps, left color strip for systems, rounded rects for capabilities, pill shapes for actors
 - **Industry themes** — accent color overlays for retail (orange), finance (blue), manufacturing (gray)
+- **Visual profiles** — optional profile overlays for executive, technical, operations, consulting, and knowledge-canvas outputs
 
 The layout engine computes positions dynamically with overlap resolution, horizontal alignment, and mid-y collision avoidance. The region boundary box and SVG canvas auto-expand to contain all arrow paths.
 
@@ -197,6 +218,10 @@ kai-business-blueprint/
 │   ├── export_drawio.py          # draw.io exporter
 │   ├── export_excalidraw.py      # Excalidraw exporter
 │   ├── export_mermaid.py         # Mermaid markdown exporter
+│   ├── visual_profiles.py        # Business visual profile registry and palette overlays
+│   ├── showcase_matrix.py        # Multi-industry/profile SVG showcase generator
+│   ├── validation_matrix.py      # Medium-complexity per-template validation generator
+│   ├── render_png.py             # Optional CairoSVG PNG render probe
 │   ├── templates/                # Industry packs (common, retail, finance, manufacturing)
 │   ├── assets/                   # viewer.html template
 │   └── specs/                    # Blueprint schema definitions
@@ -283,6 +308,8 @@ for rel in bp["relations"]:
 ---
 
 ## Version History
+
+**v0.15.0** — Visual profile and showcase hardening: add named SVG/HTML visual profiles (`executive-clean`, `blueprint-technical`, `dark-ops`, `warm-consulting`, `knowledge-canvas`) plus `--visual-profile auto` so different blueprint templates no longer collapse into one style. Add showcase matrix generation for multi-industry/profile comparisons, per-template medium-complexity validation generation, optional CairoSVG PNG render probing, UTF-8 template loading on Windows, and regression coverage for profile metadata, prompt audit trails, CLI propagation, showcase summaries, validation summaries, and PNG skip/render behavior.
 
 **v0.14.0** — Domain-knowledge blueprints: add a second blueprint type for know-how pitches (pain points / strategies / rules / metrics / practices / pitfalls) on top of the existing architecture mode. Three quality-driven mechanisms — clarification turn (validator requires ≥3 entity-targeted clarifyRequests), per-entity self-check (entities surface their own uncertainty as a `?` glyph), and `--refine` command (LLM emits a structured diff that is applied to produce a new revision). New `cross-border-ecommerce` industry pack with depth-validated knowledgeHints; existing retail/finance/manufacturing packs gain `knowledgeHints` blocks marked `template-only-not-domain-validated` so AI must disclose the limitation. Knowledge SVG renderer uses a three-band layout (rules / pain-strategy-metric triptych / practices-pitfalls capsules) with row alignment by `solves` / `measures`, cubic Bezier connections, and three-tier opacity so the dominant story stays readable on dense graphs. Free-flow renderer also switches simple connections from straight lines to Bezier. 85 unit tests (67 new) lock the v2 behaviour.
 

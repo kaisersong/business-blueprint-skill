@@ -53,7 +53,7 @@ def load_export_integrity_thresholds() -> dict[str, float]:
         "titleOverflowTolerancePx": 0.0,
         "cardTextInsetPx": 12.0,
     }
-    path = Path(__file__).resolve().parent.parent / "evals" / "export-integrity-thresholds.json"
+    path = Path(__file__).resolve().parents[2] / "evals" / "export-integrity-thresholds.json"
     if not path.exists():
         return default_thresholds
     payload = json.loads(path.read_text(encoding="utf-8"))

@@ -320,6 +320,14 @@ class TestRenderFreeFlowSvg:
         assert int(bg_rect.group(2)) == svg_h
         assert int(grid_rect.group(2)) == svg_h
 
+    def test_standard_three_layer_width_is_not_reported_too_narrow(self):
+        layout = {"width": 990, "nodes": {}, "arrows": []}
+        blueprint = {"library": {"systems": [], "actors": [], "flowSteps": []}}
+
+        issues = _check_layout_quality(layout, blueprint)
+
+        assert not any("Canvas too narrow" in issue for issue in issues)
+
     def test_elbow_arrow_labels_do_not_overlap(self):
         bp = _make_layered_label_overlap_blueprint()
         layout = _layout_layered(bp)
@@ -330,7 +338,7 @@ class TestRenderFreeFlowSvg:
         def _rect_for(label: str) -> tuple[int, int, int, int]:
             pattern = (
                 rf'<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="18" '
-                rf'rx="3" fill="#1E293B" fill-opacity="0.9"/>'
+                rf'rx="3" fill="#1E293B" fill-opacity="(?:0\.9|1\.0)"/>'
                 rf'<text x="([0-9.]+)" y="([0-9.]+)"[^>]*>{label}</text>'
             )
             match = re.search(pattern, svg)

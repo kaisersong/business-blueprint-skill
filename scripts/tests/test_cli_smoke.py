@@ -26,6 +26,7 @@ def test_cli_help_lists_supported_commands() -> None:
     assert "--project" in result.stdout
     assert "--generate" in result.stdout
     assert "--validate" in result.stdout
+    assert "--visual-profile" in result.stdout
 
 
 def test_cli_export_returns_structured_diagnostics_on_integrity_failure(
@@ -85,7 +86,11 @@ def test_cli_export_generates_prompt_file(
 
     monkeypatch.setattr(cli_module, "export_svg_auto", lambda *a, **k: None)
     monkeypatch.setattr(cli_module, "export_html_viewer", lambda *a, **k: None)
-    monkeypatch.setattr(cli_module.sys, "argv", ["bb", "--export", str(bp)])
+    monkeypatch.setattr(
+        cli_module.sys,
+        "argv",
+        ["bb", "--export", str(bp), "--visual-profile", "dark-ops"],
+    )
 
     exit_code = cli_module.main()
     assert exit_code == 0
@@ -96,6 +101,7 @@ def test_cli_export_generates_prompt_file(
     content = prompt_files[0].read_text()
     assert "## Provenance" in content
     assert "## Export Configuration" in content
+    assert "**Visual Profile**: dark-ops" in content
 
 
 def test_cli_export_drawio_generates_prompt_file(

@@ -164,7 +164,8 @@ def load_perspective(perspective_id: str, registry_path: str = "scripts/business
         # Fallback：使用默认配置
         return create_default_perspective(perspective_id)
 
-    return json.load(open(perspective_file))
+    with perspective_file.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def load_overlay(overlay_id: str, registry_path: str = "scripts/business_blueprint/strategy_registry/overlays") -> Dict | None:
@@ -178,7 +179,8 @@ def load_overlay(overlay_id: str, registry_path: str = "scripts/business_bluepri
         # Fallback：使用默认配置
         return create_default_overlay(overlay_id)
 
-    return json.load(open(overlay_file))
+    with overlay_file.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def create_default_perspective(perspective_id: str) -> Dict:
