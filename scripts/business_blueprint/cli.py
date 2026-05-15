@@ -147,7 +147,7 @@ def main() -> int:
         export_dir = blueprint_path.parent / f"{stem}.exports"
         export_dir.mkdir(parents=True, exist_ok=True)
         html_path = blueprint_path.parent / f"{stem}.html"
-        export_svg(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
+        export_svg_auto(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
         export_html_viewer(blueprint, html_path, theme=args.theme)
         generate_prompt_file(blueprint, export_dir, theme=args.theme, fmt="auto-svg")
         return 0

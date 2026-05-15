@@ -17,7 +17,8 @@ _TEMPLATE_PATH = Path(__file__).parent / "templates" / "html-viewer.html"
 
 
 def _get_skill_version() -> str:
-    """Read skill version from pyproject.toml (source of truth over installed package)."""
+    """Read skill version from pyproject.toml, egg-info, or git tag."""
+    # 1. pyproject.toml
     try:
         toml_path = Path(__file__).parent.parent / "pyproject.toml"
         text = toml_path.read_text()
@@ -26,11 +27,30 @@ def _get_skill_version() -> str:
                 return line.split('"')[1]
     except Exception:
         pass
-    import importlib.metadata
+    # 2. egg-info PKG-INFO
+    try:
+        for d in (Path(__file__).parent.parent).glob("*.egg-info"):
+            pkg = d / "PKG-INFO"
+            if pkg.exists():
+                for line in pkg.read_text().splitlines():
+                    if line.startswith("Version:"):
+                        return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    # 3. importlib.metadata
     try:
         return importlib.metadata.version("business-blueprint-skill")
-    except importlib.metadata.PackageNotFoundError:
-        return "0.0.0"
+    except Exception:
+        pass
+    # 4. git describe
+    try:
+        import subprocess
+        r = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], capture_output=True, text=True, cwd=str(Path(__file__).parent.parent))
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().lstrip("v")
+    except Exception:
+        pass
+    return "0.0.0"
 
 
 _SKILL_VERSION = _get_skill_version()
@@ -278,6 +298,10 @@ def export_html_viewer(blueprint: dict[str, Any], target: Path, theme: str = "li
     html = html.replace("{{DARK_EXTRAS}}", dark_extras)
     html = html.replace("{{GRID_BG}}", grid_bg)
     html = html.replace("{{VERSION}}", _SKILL_VERSION)
+    industry = blueprint.get("meta", {}).get("industry", "")
+    html = html.replace("{{INDUSTRY_TAG}}", f" · {industry}" if industry else "")
+    btype = blueprint.get("meta", {}).get("blueprintType", "architecture")
+    html = html.replace("{{ROUTE_TAG}}", f" · {btype}" if btype else "")
     html = html.replace("{{SVG_CONTENT}}", svg_content)
     html = html.replace("{{SUMMARY_CARDS}}", summary_cards)
     html = html.replace("{{DESCRIPTION_SECTION}}", description_section)

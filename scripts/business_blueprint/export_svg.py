@@ -2207,13 +2207,15 @@ def _export_by_route(
     industry_label = industry or ""
     subtitle = f"行业：{industry_label}" if industry_label else "架构"
 
-    # Detect layer-based layout (now systems have layer fields)
-    has_layers = any(s.get("layer") for s in systems)
-
-    if has_layers:
-        layout = _layout_layered(blueprint)
-    else:
+    # Route decision is final: freeflow means freeflow layout, never layered
+    if route == "freeflow":
         layout = _layout_free_flow(blueprint)
+    else:
+        has_layers = any(s.get("layer") for s in systems)
+        if has_layers:
+            layout = _layout_layered(blueprint)
+        else:
+            layout = _layout_free_flow(blueprint)
     # Run quality validation
     issues = _check_layout_quality(layout, blueprint)
     if issues:

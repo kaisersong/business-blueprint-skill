@@ -90,26 +90,28 @@ def _is_route_eligible(
             or {"aws", "k8s"} & infra_types
         )
     if route == "poster":
-        # Poster (layered systems) is for product blueprints with explicit layer structure
-        # Trigger: explicit layer field OR enough systems (≥4) suggesting layered architecture
-        return bool(systems) and (
-            any(s.get("layer") for s in systems)
-            or len(systems) >= 4  # Fallback: many systems suggest layered architecture
-        )
+        # Poster requires explicit layer/group structure on systems.
+        # Freeflow is the default; poster only when blueprint has real layer data.
+        layers = {s.get("layer") for s in systems if s.get("layer")}
+        return len(layers) >= 2
     if route == "swimlane":
-        # Swimlane is the MOST CONSTRAINED scenario - requires explicit flow orchestration
-        # Must have: ≥3 actors, ≥3 flow steps, AND flow steps with explicit sequence (inputRefs/outputRefs)
+        # Swimlane is the MOST CONSTRAINED scenario — only when the blueprint
+        # is clearly flow-centric (steps >> systems) with sequential orchestration.
+        # A blueprint with many systems and a few steps is architecture-focused,
+        # not flow-focused, and should use freeflow instead.
         actor_ids = {a.get("id") for a in actors if a.get("id")}
         actor_owned = [step for step in flow_steps if step.get("actorId") in actor_ids]
         has_sequence = any(
             step.get("inputRefs") or step.get("outputRefs")
             for step in flow_steps
         )
+        flow_dominant = len(flow_steps) > len(systems)
         return (
             len(actor_ids) >= 3
             and len(actor_owned) >= 3
             and len(flow_steps) >= 4
-            and has_sequence  # Must have explicit flow sequence
+            and has_sequence
+            and flow_dominant
         )
     if route == "hierarchy":
         has_segment = any(
