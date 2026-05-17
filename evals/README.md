@@ -9,6 +9,7 @@ This directory holds machine-readable eval inputs, thresholds, taxonomy data, an
 - `export-scoring-schema.json` — minimal scoring/output schema for export eval runs
 - `blueprint-skill-prompts.csv` — agent-agnostic captured-run skill eval case manifest
 - `skill-run-rubric.schema.json` — structured rubric schema for qualitative blueprint style checks
+- `skill-eval-implementation-plan.md` — implementation plan, baseline score, verification, and release notes for the v0.16.1 skill eval work
 
 ## Skill Evals
 
