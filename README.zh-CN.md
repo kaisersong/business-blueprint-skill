@@ -58,6 +58,13 @@ IR 文件的特点：
 
 ## 安装
 
+### 下载
+
+当前发布版本：**v0.16.1**
+
+- Release 页面：<https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.1>
+- 直接下载 zip：<https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.1/kai-business-blueprint-v0.16.1.zip>
+
 ### Claude Code
 
 ```bash
@@ -116,6 +123,38 @@ cd kai-business-blueprint && pip install -e .
 - `business_blueprint.validation_matrix` 可为每个行业模板生成一个中等复杂度 JSON/SVG/HTML 验证包，并写出 `template-validation-summary.json`。
 - `business_blueprint.render_png` 提供可选 PNG 渲染探针；只有安装 CairoSVG 时才渲染，否则返回 skipped JSON，不算导出失败。
 - Windows / 终端支持是收敛范围的：推荐统一走 `python -m business_blueprint.cli`，遇到编码敏感场景时显式设置 `PYTHONIOENCODING=utf-8`。
+
+### Skill Evals
+
+`kai-business-blueprint` 现在有两层 eval：
+
+- `evals/` 和 `scripts/tests/` 下的导出/回归 eval，用来锁定路由、SVG 完整性、schema、projection 和 CLI 行为。
+- captured-run skill eval，用 normalized trace 对每个 case 打四类分：Outcome、Process、Style、Efficiency，每类 25 分。
+
+运行离线基线：
+
+```bash
+python3 scripts/run-skill-evals.py --root . --runner fixture
+```
+
+运行发布验证：
+
+```bash
+python3 scripts/verify-release.py --root .
+```
+
+默认 skill eval 是 **agent 无关** 的：只读取仓库内 normalized fixture，不会调用 Codex、Claude、Qoder、OpenClaw、模型 API 或网络。要评估任何外部 agent 的真实运行结果，先把运行记录转换成 normalized trace，再执行：
+
+```bash
+python3 scripts/run-skill-evals.py --root . --runner trace --case-id <case-id> --normalized-trace <trace.json>
+```
+
+当前保存的基线：
+
+- 文件：[`evals/baselines/2026-05-17-skill-evals-fixture.json`](evals/baselines/2026-05-17-skill-evals-fixture.json)
+- 汇总：`6 passed, 0 failed, 0 incomplete`
+- 平均分：`99.67/100`
+- 分类平均分：Outcome `25.00`、Process `25.00`、Style `24.67`、Efficiency `25.00`
 
 ### 典型工作流
 
@@ -307,6 +346,10 @@ for rel in bp["relations"]:
 ---
 
 ## 版本日志
+
+**v0.16.1** — Agent 无关 skill eval 发布：新增 business-blueprint captured-run skill eval，包含 normalized fixture traces、prompt manifest、rubric schema、style fixtures、已保存基线（`99.67/100`，6 个 case 全通过）和 release verification 入口。eval harness 只消费 fixture 或 normalized trace JSON，不依赖 Codex、Claude、Qoder、OpenClaw、模型 API 或网络。
+
+**v0.16.0** — 视觉 profile 与 showcase 加固补充：新增差异化 validation/showcase 输出与带版本的 viewer 元数据。
 
 **v0.15.0** — 视觉 profile 与 showcase 加固：新增 `executive-clean`、`blueprint-technical`、`dark-ops`、`warm-consulting`、`knowledge-canvas` 五种 SVG/HTML 视觉风格，并支持 `--visual-profile auto`，避免不同蓝图模板都退化成同一种样式。新增 showcase matrix 生成器、每模板中等复杂度验证生成器、可选 CairoSVG PNG 渲染探针、Windows UTF-8 模板读取修复，并补齐 profile 元数据、prompt 审计记录、CLI 透传、showcase summary、validation summary、PNG skip/render 行为的回归测试。
 

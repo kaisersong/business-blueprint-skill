@@ -5,6 +5,7 @@ __pycache__/
 .coverage
 .tmp/
 .tmp-review/
+evals/artifacts/current/
 docs/
 demos/*.exports/
 demos/common-demo.txt

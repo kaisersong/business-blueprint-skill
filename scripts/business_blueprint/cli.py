@@ -5,21 +5,50 @@ import json
 import sys
 from pathlib import Path
 
-# 确保可以找到本地模块（纯Skill执行，使用绝对路径）
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from export_drawio import export_drawio
-from export_excalidraw import export_excalidraw
-from export_html import export_html_viewer
-from export_integrity import ExportIntegrityError
-from export_mermaid import export_mermaid
-from export_svg import export_svg, export_svg_auto, export_product_tree_svg, export_matrix_svg, export_capability_map_svg, export_swimlane_flow_svg
-from generate import write_plan_output
-from model import load_json, write_json
-from prompt_generator import generate_prompt_file
-from projection import build_narrative_projection, default_projection_path
-from validate import validate_blueprint
-from viewer import write_viewer_package
+try:
+    from .export_drawio import export_drawio
+    from .export_excalidraw import export_excalidraw
+    from .export_html import export_html_viewer
+    from .export_integrity import ExportIntegrityError
+    from .export_mermaid import export_mermaid
+    from .export_svg import (
+        export_capability_map_svg,
+        export_matrix_svg,
+        export_product_tree_svg,
+        export_svg,
+        export_svg_auto,
+        export_swimlane_flow_svg,
+    )
+    from .generate import write_plan_output
+    from .model import load_json, write_json
+    from .prompt_generator import generate_prompt_file
+    from .projection import build_narrative_projection, default_projection_path
+    from .validate import validate_blueprint
+    from .viewer import write_viewer_package
+    from .visual_profiles import VISUAL_PROFILE_IDS
+except ImportError:
+    # Allow direct execution as `python scripts/business_blueprint/cli.py`.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from export_drawio import export_drawio
+    from export_excalidraw import export_excalidraw
+    from export_html import export_html_viewer
+    from export_integrity import ExportIntegrityError
+    from export_mermaid import export_mermaid
+    from export_svg import (
+        export_capability_map_svg,
+        export_matrix_svg,
+        export_product_tree_svg,
+        export_svg,
+        export_svg_auto,
+        export_swimlane_flow_svg,
+    )
+    from generate import write_plan_output
+    from model import load_json, write_json
+    from prompt_generator import generate_prompt_file
+    from projection import build_narrative_projection, default_projection_path
+    from validate import validate_blueprint
+    from viewer import write_viewer_package
+    from visual_profiles import VISUAL_PROFILE_IDS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"Template pack name ({', '.join(_INDUSTRIES)}).")
     parser.add_argument("--theme", default="dark", choices=["light", "dark"],
                         help="Color theme for HTML output (default: dark).")
+    parser.add_argument(
+        "--visual-profile",
+        default="base",
+        choices=("base", "auto", *VISUAL_PROFILE_IDS),
+        help="Visual profile: base, auto, executive-clean, blueprint-technical, dark-ops, warm-consulting, knowledge-canvas.",
+    )
     return parser
 
 
@@ -100,7 +135,7 @@ def main() -> int:
         )
         # Also generate self-contained HTML viewer with inline SVG
         html_path = viewer_path.with_name("solution.viewer.html")
-        export_html_viewer(load_json(blueprint_path), html_path, theme=args.theme)
+        export_html_viewer(load_json(blueprint_path), html_path, theme=args.theme, visual_profile=args.visual_profile)
         return 0
 
     if args.edit:
@@ -122,10 +157,10 @@ def main() -> int:
         html_path = blueprint_path.parent / f"{blueprint_path.stem}.html"
         fmt = args.export_format or "svg"
         try:
-            generate_prompt_file(blueprint, export_dir, theme=args.theme, fmt=fmt)
+            generate_prompt_file(blueprint, export_dir, theme=args.theme, fmt=fmt, visual_profile=args.visual_profile)
             if fmt == "svg":
-                export_svg_auto(blueprint, export_dir / "solution.svg", theme=args.theme)
-                export_html_viewer(blueprint, html_path, theme=args.theme)
+                export_svg_auto(blueprint, export_dir / "solution.svg", theme=args.theme, visual_profile=args.visual_profile)
+                export_html_viewer(blueprint, html_path, theme=args.theme, visual_profile=args.visual_profile)
             elif fmt == "drawio":
                 export_drawio(blueprint, export_dir / "solution.drawio")
             elif fmt == "excalidraw":
@@ -147,9 +182,9 @@ def main() -> int:
         export_dir = blueprint_path.parent / f"{stem}.exports"
         export_dir.mkdir(parents=True, exist_ok=True)
         html_path = blueprint_path.parent / f"{stem}.html"
-        export_svg_auto(blueprint, export_dir / "solution.auto.svg", theme=args.theme)
-        export_html_viewer(blueprint, html_path, theme=args.theme)
-        generate_prompt_file(blueprint, export_dir, theme=args.theme, fmt="auto-svg")
+        export_svg_auto(blueprint, export_dir / "solution.auto.svg", theme=args.theme, visual_profile=args.visual_profile)
+        export_html_viewer(blueprint, html_path, theme=args.theme, visual_profile=args.visual_profile)
+        generate_prompt_file(blueprint, export_dir, theme=args.theme, fmt="auto-svg", visual_profile=args.visual_profile)
         return 0
 
     if args.html:
@@ -157,8 +192,8 @@ def main() -> int:
         blueprint = load_json(blueprint_path)
         html_path = Path(args.html)
         html_path.parent.mkdir(parents=True, exist_ok=True)
-        export_html_viewer(blueprint, html_path, theme=args.theme)
-        generate_prompt_file(blueprint, html_path.parent, theme=args.theme, fmt="html")
+        export_html_viewer(blueprint, html_path, theme=args.theme, visual_profile=args.visual_profile)
+        generate_prompt_file(blueprint, html_path.parent, theme=args.theme, fmt="html", visual_profile=args.visual_profile)
         return 0
 
     if args.validate:

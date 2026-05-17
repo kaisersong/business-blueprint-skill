@@ -58,6 +58,13 @@ The skill file (`SKILL.md`) is a routing layer — it tells Claude *which* file 
 
 ## Install
 
+### Download
+
+Current release: **v0.16.1**
+
+- Release page: <https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.1>
+- Direct zip: <https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.1/kai-business-blueprint-v0.16.1.zip>
+
 ### Claude Code
 
 ```bash
@@ -118,6 +125,38 @@ The knowledge SVG renderer uses a three-band layout: rules across the top, a `pa
 - Template validation matrix generation lives in `business_blueprint.validation_matrix` and writes one medium-complexity JSON/SVG/HTML package per industry template plus `template-validation-summary.json`.
 - Optional PNG rendering lives in `business_blueprint.render_png`; it uses CairoSVG only when installed and reports a skipped render otherwise.
 - Windows/terminal support is intentionally scoped: the canonical path is `python -m business_blueprint.cli`, and encoding-sensitive runs should use `PYTHONIOENCODING=utf-8` when needed.
+
+### Skill Evals
+
+`kai-business-blueprint` has two eval layers:
+
+- Export/regression evals under `evals/` and `scripts/tests/` keep routing, SVG integrity, schema behavior, projection, and CLI behavior deterministic.
+- Captured-run skill evals score a normalized trace across four 25-point categories: Outcome, Process, Style, and Efficiency.
+
+Run the offline skill eval baseline:
+
+```bash
+python3 scripts/run-skill-evals.py --root . --runner fixture
+```
+
+Run release verification:
+
+```bash
+python3 scripts/verify-release.py --root .
+```
+
+The default skill eval path is **agent-agnostic**. It uses checked-in normalized fixtures and does not invoke Codex, Claude, Qoder, OpenClaw, model APIs, or the network. To score an external run from any agent, convert that run into the normalized trace schema first, then run:
+
+```bash
+python3 scripts/run-skill-evals.py --root . --runner trace --case-id <case-id> --normalized-trace <trace.json>
+```
+
+Saved baseline:
+
+- File: [`evals/baselines/2026-05-17-skill-evals-fixture.json`](evals/baselines/2026-05-17-skill-evals-fixture.json)
+- Summary: `6 passed, 0 failed, 0 incomplete`
+- Average score: `99.67/100`
+- Category averages: Outcome `25.00`, Process `25.00`, Style `24.67`, Efficiency `25.00`
 
 ### Typical Workflows
 
@@ -308,6 +347,10 @@ for rel in bp["relations"]:
 ---
 
 ## Version History
+
+**v0.16.1** — Agent-agnostic skill eval release: add captured-run blueprint skill evals with normalized fixture traces, prompt manifest, rubric schema, style fixtures, saved baseline (`99.67/100`, 6 passed), and a release verification entry point. The eval harness consumes fixture or normalized trace JSON only; it does not depend on Codex, Claude, Qoder, OpenClaw, model APIs, or network access.
+
+**v0.16.0** — Visual profile and showcase hardening follow-up: adds differentiated validation/showcase outputs and versioned viewer metadata.
 
 **v0.15.0** — Visual profile and showcase hardening: add named SVG/HTML visual profiles (`executive-clean`, `blueprint-technical`, `dark-ops`, `warm-consulting`, `knowledge-canvas`) plus `--visual-profile auto` so different blueprint templates no longer collapse into one style. Add showcase matrix generation for multi-industry/profile comparisons, per-template medium-complexity validation generation, optional CairoSVG PNG render probing, UTF-8 template loading on Windows, and regression coverage for profile metadata, prompt audit trails, CLI propagation, showcase summaries, validation summaries, and PNG skip/render behavior.
 

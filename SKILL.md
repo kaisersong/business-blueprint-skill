@@ -53,6 +53,31 @@ python scripts/business_blueprint/cli.py --export <blueprint.json>
 Default: SVG + HTML viewer. Use `--format drawio|excalidraw|mermaid` for other formats.
 Read `references/route-eligibility.md` for export route selection rules.
 
+## Architecture Rendering Rules
+
+Use dark mode by default. Only use light mode when the user explicitly asks for it.
+
+Never force every node in a layer into one fixed row. Dense layers must wrap,
+group, or fall back to freeflow instead of becoming a toothpaste layout.
+Legend must live in a bottom safe area. Never place the legend as a floating overlay in the top-right corner.
+Do not use fixed-height wrappers or `overflow: hidden` to hide overflow in generated viewers.
+
+Route eligibility matrix:
+
+| Route | Eligibility |
+|-------|-------------|
+| `freeflow` | Any valid blueprint with at least one renderable node or relation |
+| `architecture-template` | Categorized architecture graph with systems, capabilities, actors, and relations |
+| `evolution` | Dated or staged flow where timeline ordering is explicit |
+| `domain-knowledge` | `meta.blueprintType: "domain-knowledge"` with knowledge entities |
+
+If a specialized route fails integrity, fall back according to
+`references/route-eligibility.md`. If `freeflow` also fails, export exits non-zero with a structural diagnostics payload.
+
+Geometry thresholds are machine-readable and live in
+`evals/export-integrity-thresholds.json`; defect categories live in
+`evals/defect-taxonomy.json`. Phase 2 does not attempt full Windows terminal parity. For encoding-sensitive terminal runs, set `PYTHONIOENCODING=utf-8`.
+
 ### Step 5: Generate downstream projection (optional)
 
 ```bash
