@@ -4,7 +4,9 @@ Date: 2026-05-17
 
 Scope: `kai-business-blueprint` / `business-blueprint-skill`
 
-Release: `v0.16.1`
+Release: `v0.16.2`
+
+Initial eval release: `v0.16.1`
 
 ## 背景
 
@@ -206,16 +208,15 @@ python3 scripts/verify-release.py --root . --format json
 
 GitHub Release:
 
-- <https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.1>
+- <https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.2>
 
 Direct zip:
 
-- <https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.1/kai-business-blueprint-v0.16.1.zip>
+- <https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.2/kai-business-blueprint-v0.16.2.zip>
 
 ClawHub:
 
-- `business-blueprint-skill@0.16.1`
-- Publish id: `k9728xmpc09ayf81j5czj0ma2n86xeam`
+- `business-blueprint-skill@0.16.2`
 
 ## 后续扩展规则
 

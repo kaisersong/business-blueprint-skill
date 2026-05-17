@@ -60,10 +60,10 @@ IR 文件的特点：
 
 ### 下载
 
-当前发布版本：**v0.16.1**
+当前发布版本：**v0.16.2**
 
-- Release 页面：<https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.1>
-- 直接下载 zip：<https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.1/kai-business-blueprint-v0.16.1.zip>
+- Release 页面：<https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.2>
+- 直接下载 zip：<https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.2/kai-business-blueprint-v0.16.2.zip>
 
 ### Claude Code
 
@@ -346,6 +346,8 @@ for rel in bp["relations"]:
 ---
 
 ## 版本日志
+
+**v0.16.2** — 包含完整文档的 eval 发布：更新 README 中英文下载链接到最新 GitHub Release，把完整 business-blueprint skill eval 实现方案记录到 `evals/`，并继续保留 agent 无关基线用于后续比较（`99.67/100`，6 个 case 全通过）。
 
 **v0.16.1** — Agent 无关 skill eval 发布：新增 business-blueprint captured-run skill eval，包含 normalized fixture traces、prompt manifest、rubric schema、style fixtures、已保存基线（`99.67/100`，6 个 case 全通过）和 release verification 入口。eval harness 只消费 fixture 或 normalized trace JSON，不依赖 Codex、Claude、Qoder、OpenClaw、模型 API 或网络。
 

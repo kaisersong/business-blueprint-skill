@@ -60,10 +60,10 @@ The skill file (`SKILL.md`) is a routing layer — it tells Claude *which* file 
 
 ### Download
 
-Current release: **v0.16.1**
+Current release: **v0.16.2**
 
-- Release page: <https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.1>
-- Direct zip: <https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.1/kai-business-blueprint-v0.16.1.zip>
+- Release page: <https://github.com/kaisersong/kai-business-blueprint/releases/tag/v0.16.2>
+- Direct zip: <https://github.com/kaisersong/kai-business-blueprint/releases/download/v0.16.2/kai-business-blueprint-v0.16.2.zip>
 
 ### Claude Code
 
@@ -347,6 +347,8 @@ for rel in bp["relations"]:
 ---
 
 ## Version History
+
+**v0.16.2** — Docs-inclusive eval release: updates the English/Chinese README download links to the latest GitHub Release, records the full business-blueprint skill eval implementation plan under `evals/`, and keeps the saved agent-agnostic baseline visible for comparison (`99.67/100`, 6 passed, 0 failed).
 
 **v0.16.1** — Agent-agnostic skill eval release: add captured-run blueprint skill evals with normalized fixture traces, prompt manifest, rubric schema, style fixtures, saved baseline (`99.67/100`, 6 passed), and a release verification entry point. The eval harness consumes fixture or normalized trace JSON only; it does not depend on Codex, Claude, Qoder, OpenClaw, model APIs, or network access.
 
